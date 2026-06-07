@@ -1,0 +1,15 @@
+# Ignore environment files
+.env
+
+# Node.js dependencies
+node_modules/
+
+# Python cache and build files
+**/__pycache__/
+*.pkl
+dist/
+build/
+.vscode/
+.idea/
+postgres_data/
+redis_data/

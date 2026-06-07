@@ -1,0 +1,11 @@
+{
+  "name": "payos-notification-service",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "ws": "^8.13.0"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  }
+}
