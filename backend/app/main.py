@@ -1,11 +1,19 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.session import get_db
+from starlette.responses import JSONResponse
+from sqlalchemy import text
 
 app = FastAPI()
 
-@app.get("/api/health")
-async def health_check():
+@app.get("/health")
+async def health():
     return {"status": "ok"}
 
-@app.get("/api/")
-async def root():
-    return {"message": "Welcome to PayOS Backend API"}
+@app.get("/health/db")
+async def health_db(session: AsyncSession = Depends(get_db)):
+    try:
+        await session.execute(text("SELECT 1"))
+        return {"db_status": "ok"}
+    except Exception as e:
+        return {"error": str(e)}
