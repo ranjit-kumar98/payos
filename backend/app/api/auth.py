@@ -21,7 +21,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(b
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
-        if user_id is None:
+        jti: str = payload.get("jti")
+        if user_id is None or jti is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
@@ -29,6 +30,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(b
     user = await auth_service.get_user_by_email(payload.get("email"))
     if user is None:
         raise credentials_exception
+
+    from app.services.redis_service import check_session
+    if not await check_session(user_id, jti):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked or session expired")
+
     return UserResponse(
         id=str(user.id),
         email=user.email,
@@ -54,6 +60,13 @@ async def login_user(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     token = auth_service.create_token(user)
+
+    from app.services.redis_service import store_session
+    from jose import jwt as pyjwt
+    decoded = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    jti = decoded.get("jti")
+    await store_session(str(user.id), jti)
+
     return AuthResponse(access_token=token)
 
 @router.get("/me", response_model=UserResponse)
