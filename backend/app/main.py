@@ -1,10 +1,15 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
-from starlette.responses import JSONResponse
 from sqlalchemy import text
+from fastapi import Depends, HTTPException
+from app.db.session import get_db
+from app.api import api_router
 
-app = FastAPI()
+app = FastAPI(
+    root_path="/api"
+)
+
+app.include_router(api_router)
 
 @app.get("/health")
 async def health():
