@@ -11,6 +11,9 @@ class Settings:
 
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-very-secret-key")
 
+    DEMO_EMAIL: str = os.getenv("DEMO_EMAIL", "demo@payos.com")
+    DEMO_PASSWORD: str = os.getenv("DEMO_PASSWORD", "demopassword")
+
     @property
     def database_url(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
