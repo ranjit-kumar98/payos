@@ -1,15 +1,22 @@
 from fastapi import FastAPI
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from fastapi import Depends, HTTPException
 from app.db.session import get_db
 from app.api import api_router
+from app.services.payment_routing_service import PaymentRoutingService
 
 app = FastAPI(
     root_path="/api"
 )
 
 app.include_router(api_router)
+
+@app.on_event("startup")
+async def startup_event():
+    async for db in get_db():
+        routing_service = PaymentRoutingService(db)
+        await routing_service.seed_demo_data()
+        break
 
 @app.get("/health")
 async def health():
