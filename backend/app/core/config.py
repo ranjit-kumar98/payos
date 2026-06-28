@@ -11,6 +11,10 @@ class Settings:
 
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-very-secret-key")
 
+    RAZORPAY_KEY_ID: str = os.getenv("RAZORPAY_KEY_ID", "")
+    RAZORPAY_KEY_SECRET: str = os.getenv("RAZORPAY_KEY_SECRET", "")
+    RAZORPAY_WEBHOOK_SECRET: str = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
+
     DEMO_EMAIL: str = os.getenv("DEMO_EMAIL", "demo@payos.com")
     DEMO_PASSWORD: str = os.getenv("DEMO_PASSWORD", "demopassword")
 
