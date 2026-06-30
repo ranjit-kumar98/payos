@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.session import get_db
-from app.models import Transaction
+from app.models import Transaction, TransactionStatus
 from app.core.config import settings
 from razorpay.utility.utility import Utility
 

@@ -4,9 +4,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.api import api_router
 from app.services.payment_routing_service import PaymentRoutingService
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     root_path="/api"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost",
+        "http://localhost:3000",
+        "http://localhost:5500",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(api_router)

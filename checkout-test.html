@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PayOS Razorpay Checkout Test</title>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    label, input, button { font-size: 1rem; margin: 0.5rem 0; }
+    #output { margin-top: 1rem; white-space: pre-wrap; background: #f0f0f0; padding: 1rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>PayOS Razorpay Checkout Test</h1>
+  <label for="amount">Amount (INR):</label><br />
+  <input type="number" id="amount" min="1" step="0.01" value="100" /><br />
+  <button id="payBtn">Pay</button>
+
+  <div id="output"></div>
+
+  <script>
+    const payBtn = document.getElementById('payBtn');
+    const output = document.getElementById('output');
+
+    // Replace this with your actual JWT token for testing
+    const jwtToken = prompt("Paste JWT Token");
+
+    function logMessage(msg) {
+      console.log(msg);
+      output.textContent += msg + '\\n';
+    }
+
+    payBtn.onclick = async () => {
+      output.textContent = '';
+      const amount = parseFloat(document.getElementById('amount').value);
+      if (!amount || amount <= 0) {
+        alert('Please enter a valid amount');
+        return;
+      }
+
+      try {
+        // Call backend /payments/create-order endpoint
+        const response = await fetch('http://localhost/api/payments/create-order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + jwtToken
+          },
+          body: JSON.stringify({
+            amount: amount,
+            currency: 'INR',
+            payment_method: 'CARD'
+          })
+        });
+
+    if (!response.ok) {
+          const err = await response.text();
+          logMessage('Error creating order: ' + err);
+          return;
+        }
+        if (!response.ok) {
+
+    console.log(await response.text());
+
+    throw new Error(
+        "Backend returned " + response.status
+    );
+
+}
+
+        const data = await response.json();
+
+        console.log(data);
+        logMessage(JSON.stringify(data, null, 2));
+      
+
+        const options = {
+
+            key: data.key_id,
+
+            order_id: data.order_id,
+
+            amount: amount * 100,
+
+            currency: "INR",
+
+            name: "PayOS",
+
+            description: "Checkout Test",
+
+            handler: function (response) {
+
+                logMessage("PAYMENT SUCCESS");
+
+                logMessage(
+                    JSON.stringify(response, null, 2)
+                );
+
+            },
+
+            modal: {
+
+                ondismiss() {
+
+                    logMessage("Popup Closed");
+
+                }
+
+            }
+
+        };
+
+        const rzp = new Razorpay(options);
+
+        rzp.on("payment.failed", function (response) {
+
+            logMessage("PAYMENT FAILED");
+
+            logMessage(
+                JSON.stringify(response.error, null, 2)
+            );
+
+        });
+        
+
+        rzp.open();
+      } catch (error) {
+        logMessage('Error: ' + error.message);
+      }
+    };
+  </script>
+</body>
+</html>
