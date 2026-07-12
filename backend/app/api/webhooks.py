@@ -3,16 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
 import logging
-
-from app.db.session import get_db
-from app.models import Transaction, TransactionStatus
+from datetime import datetime, timedelta
+from app.models import Transaction, TransactionStatus, Merchant
 from app.core.config import settings
 from razorpay.utility.utility import Utility
 from app.services.kafka_producer import KafkaProducer
-from app.models import TransactionStatus
-from datetime import datetime
-
-import logging
+from app.services.fraud.scoring_service import FraudScoringService
+from app.db.session import get_db
 
 logger = logging.getLogger("uvicorn")
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -59,67 +56,105 @@ async def razorpay_webhook(
 
     event = payload.get("event")
 
-    if event == "payment.captured":
-        transaction.status = TransactionStatus.SUCCESS
-    elif event == "payment.failed":
+    if event == "payment.failed":
         transaction.status = TransactionStatus.FAILED
         payment = payload.get("payload", {}).get("payment", {}).get("entity", {})
         decline_reason = payment.get("error_description")
         if decline_reason:
             transaction.decline_reason = decline_reason
 
-    payment_id = payload.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
-    if payment_id:
-        transaction.razorpay_payment_id = payment_id
+        payment_id = payload.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
+        if payment_id:
+            transaction.razorpay_payment_id = payment_id
 
-    from datetime import datetime
-    transaction.updated_at = datetime.utcnow()
+        
+        transaction.updated_at = datetime.utcnow()
 
-    await db.commit()
-    await db.refresh(transaction)
+        await db.commit()
+        await db.refresh(transaction)
 
-    # Publish Kafka event after successful commit
-    event_type = None
-    topic = None
-    payload = {
-        "transaction_id": str(transaction.id),
-        "merchant_id": str(transaction.merchant_id),
-        "amount": float(transaction.amount),
-        "status": transaction.status.value,
-        "payment_method": transaction.payment_method.value,
-        "razorpay_payment_id": transaction.razorpay_payment_id,
-    }
-
-    if event == "payment.captured":
-        event_type = "payment.captured"
-        topic = "payment.processed"
-    elif event == "payment.failed":
-        event_type = "payment.failed"
-        topic = "payment.failed"
-
-    if event_type and topic:
-        kafka_event = {
-            "event_type": event_type,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "correlation_id": str(uuid.uuid4()),
-            "payload": payload,
+        return {
+            "message": "Transaction updated",
+            "transaction_id": transaction.id,
+            "status": transaction.status.value if hasattr(transaction.status, "value") else str(transaction.status)
         }
 
-        logger.info(
-            f"Publishing payment event to Kafka topic '{topic}' "
-            f"(transaction_id={transaction.id})"
+    if event == "payment.captured":
+        transaction.status = TransactionStatus.SUCCESS
+
+        payment_id = payload.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
+        if payment_id:
+            transaction.razorpay_payment_id = payment_id
+
+        
+        transaction_timestamp = datetime.utcnow()
+        # Load merchant info
+        result = await db.execute(select(Merchant).where(Merchant.id == transaction.merchant_id))
+        merchant = result.scalars().first()
+        merchant_created_at = (
+            merchant.created_at if merchant else transaction_timestamp - timedelta(days=365)
         )
+        merchant_risk_tier = getattr(merchant, "risk_tier", "LOW") if merchant else "LOW"
 
-        try:
-            await KafkaProducer.publish(topic, kafka_event)
+        is_weekend = int(transaction_timestamp.weekday() >= 5)
 
-            logger.info(
-                f"Kafka event published successfully to '{topic}' "
-                f"(transaction_id={transaction.id})"
-            )
+        logger.info("Starting fraud assessment")
+        scoring_service = FraudScoringService()
+        fraud_assessment = scoring_service.assess(
+            amount=transaction.amount,
+            currency=transaction.currency,
+            payment_method=transaction.payment_method.value,
+            transaction_timestamp=transaction_timestamp,
+            merchant_created_at=merchant_created_at,
+            merchant_risk_tier=merchant_risk_tier,
+            is_weekend=is_weekend
+        )
+        logger.info(f"Fraud assessment completed: final_score={fraud_assessment.final_score}, risk_tier={fraud_assessment.risk_tier}")
 
-        except Exception:
-            logger.exception(
-                f"Failed to publish Kafka event to topic '{topic}' "
-                f"(transaction_id={transaction.id})"
-            )
+        # Update transaction with fraud fields
+        transaction.risk_score = fraud_assessment.final_score
+        transaction.risk_tier = fraud_assessment.risk_tier
+        transaction.triggered_rules = fraud_assessment.triggered_rules
+
+        # If risk tier is HIGH, block transaction
+        if fraud_assessment.risk_tier == "HIGH":
+            transaction.status = TransactionStatus.BLOCKED
+            logger.warning(f"Transaction {transaction.id} blocked due to high fraud risk")
+
+        transaction.updated_at = transaction_timestamp
+
+        await db.commit()
+        await db.refresh(transaction)
+        logger.info(f"Transaction {transaction.id} updated with fraud assessment")
+
+        # Publish fraud.detected event if risk tier is MEDIUM or HIGH
+        if fraud_assessment.risk_tier in ("MEDIUM", "HIGH"):
+            kafka_payload = {
+                "transaction_id": str(transaction.id),
+                "merchant_id": str(transaction.merchant_id),
+                "amount": float(transaction.amount),
+                "currency": transaction.currency,
+                "payment_method": transaction.payment_method.value,
+                "risk_score": fraud_assessment.final_score,
+                "risk_tier": fraud_assessment.risk_tier,
+                "triggered_rules": fraud_assessment.triggered_rules,
+                "status": transaction.status.value if hasattr(transaction.status, "value") else str(transaction.status)
+            }
+            kafka_event = {
+                "event_type": "fraud.detected",
+                "timestamp": transaction_timestamp.isoformat() + "Z",
+                "correlation_id": str(uuid.uuid4()),
+                "payload": kafka_payload
+            }
+            logger.info("Publishing fraud.detected Kafka event")
+            try:
+                await KafkaProducer.publish("fraud.detected", kafka_event)
+                logger.info("Kafka fraud.detected event published")
+            except Exception as e:
+                logger.error(f"Failed to publish Kafka fraud.detected event: {e}")
+
+        return {
+            "message": "Transaction updated",
+            "transaction_id": transaction.id,
+            "status": transaction.status.value if hasattr(transaction.status, "value") else str(transaction.status)
+        }

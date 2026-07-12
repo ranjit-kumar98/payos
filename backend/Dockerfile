@@ -3,6 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY ./app /app/app
+COPY ./ml /app/ml
 COPY ./alembic /app/alembic
 COPY ./alembic.ini /app/alembic.ini
 COPY requirements.txt /app/requirements.txt
