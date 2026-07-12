@@ -4,12 +4,13 @@ from sqlalchemy import select, and_, or_
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
+from app.api.auth import get_current_user
 
 from app.db.session import get_db
 from app.models import Transaction, PaymentMethod, TransactionStatus
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/transactions", tags=["transactions"])
+router = APIRouter(prefix="/transactions", tags=["transactions"], dependencies=[Depends(get_current_user)])
 
 class TransactionSummary(BaseModel):
     transaction_id: str
