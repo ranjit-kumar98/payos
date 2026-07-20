@@ -115,6 +115,27 @@ async def create_order(
     await db.commit()
     await db.refresh(transaction)
 
+    # Publish Kafka event payment.processed using KafkaProducerService
+    from app.services.kafka.producer import KafkaProducerService
+
+    await KafkaProducerService().publish(
+        topic="payment.processed",
+        event_type="payment.processed",
+        payload={
+            "transaction_id": str(transaction.id),
+            "order_id": razorpay_order["id"],
+            "merchant_id": str(merchant.id),
+            "amount": float(request.amount),
+            "currency": request.currency,
+            "payment_method": request.payment_method,
+            "status": transaction.status.value,
+            "gateway_used": transaction.gateway_used,
+            "gateway_fee": float(transaction.gateway_fee),
+            "customer_email": current_user.email,
+        },
+        correlation_id=str(transaction.id),
+    )
+
     return {
         "order_id": razorpay_order["id"],
         "key_id": settings.RAZORPAY_KEY_ID
