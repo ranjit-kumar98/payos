@@ -14,6 +14,9 @@ from app.db.session import get_db
 logger = logging.getLogger("uvicorn")
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
+print("=" * 80)
+print("WEBHOOK FILE VERSION 2026-07-21")
+print("=" * 80)
 
 @router.post("/razorpay")
 async def razorpay_webhook(
@@ -104,11 +107,15 @@ async def razorpay_webhook(
         }
 
     if event == "payment.captured":
-        transaction.status = TransactionStatus.SUCCESS
-
         payment_id = payload.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
         if payment_id:
+            # Idempotency check: if already processed, return early
+            if transaction.status == TransactionStatus.SUCCESS and transaction.razorpay_payment_id == payment_id:
+                return {
+                    "message": "Webhook already processed"
+                }
             transaction.razorpay_payment_id = payment_id
+        transaction.status = TransactionStatus.SUCCESS
 
         
         transaction_timestamp = datetime.utcnow()
@@ -182,6 +189,9 @@ async def razorpay_webhook(
 
         # Publish payment.success or payment.failed events after transaction update
         if transaction.status == TransactionStatus.SUCCESS:
+            logger.info(
+                f"Publishing payment.success | transaction_id={transaction.id} | correlation_id={transaction.id}"
+            )
             event_type = "payment.success"
             topic = "payment.success"
         elif transaction.status == TransactionStatus.FAILED:
@@ -204,7 +214,6 @@ async def razorpay_webhook(
                 "risk_score": float(transaction.risk_score) if transaction.risk_score is not None else None,
                 "risk_tier": transaction.risk_tier.value if transaction.risk_tier else None,
             }
-            logger.info(f"Publishing {event_type} Kafka event")
             try:
                 await KafkaProducerService().publish(
                     topic=topic,
@@ -212,6 +221,7 @@ async def razorpay_webhook(
                     payload=kafka_payload,
                     correlation_id=str(transaction.id)
                 )
+                print("PUBLISHED payment.success")
                 logger.info(f"Kafka {event_type} event published")
             except Exception as e:
                 logger.error(f"Failed to publish Kafka {event_type} event: {e}")

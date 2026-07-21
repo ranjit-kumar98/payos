@@ -15,8 +15,11 @@ class KafkaProducerService:
     _instance: Optional["KafkaProducerService"] = None
 
     def __init__(self) -> None:
+        if hasattr(self, "_initialized") and self._initialized:
+            return
         self._producer: Optional[AIOKafkaProducer] = None
         self._lock: Optional[asyncio.Lock] = None
+        self._initialized = True
 
     def __new__(cls) -> "KafkaProducerService":
         if cls._instance is None:
