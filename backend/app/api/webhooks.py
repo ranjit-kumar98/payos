@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from app.models import Transaction, TransactionStatus, Merchant
 from app.core.config import settings
 from razorpay.utility.utility import Utility
-from app.services.kafka_producer import KafkaProducer
+from app.services.kafka.producer import KafkaProducerService
 from app.services.fraud.scoring_service import FraudScoringService
 from app.db.session import get_db
 
@@ -67,11 +67,35 @@ async def razorpay_webhook(
         if payment_id:
             transaction.razorpay_payment_id = payment_id
 
-        
+
         transaction.updated_at = datetime.utcnow()
 
         await db.commit()
         await db.refresh(transaction)
+
+        logger.info("Publishing payment.failed Kafka event")
+        try:
+            await KafkaProducerService().publish(
+                topic="payment.failed",
+                event_type="payment.failed",
+                payload={
+                    "transaction_id": str(transaction.id),
+                    "merchant_id": str(transaction.merchant_id),
+                    "razorpay_order_id": transaction.razorpay_order_id,
+                    "razorpay_payment_id": transaction.razorpay_payment_id,
+                    "amount": float(transaction.amount),
+                    "currency": transaction.currency,
+                    "payment_method": transaction.payment_method.value,
+                    "status": transaction.status.value,
+                    "risk_score": float(transaction.risk_score) if transaction.risk_score is not None else None,
+                    "risk_tier": transaction.risk_tier.value if transaction.risk_tier else None,
+                    "decline_reason": transaction.decline_reason,
+                },
+                correlation_id=str(transaction.id),
+            )
+            logger.info("Kafka payment.failed event published")
+        except Exception as e:
+            logger.error(f"Failed to publish Kafka payment.failed event: {e}")
 
         return {
             "message": "Transaction updated",
@@ -136,22 +160,61 @@ async def razorpay_webhook(
                 "currency": transaction.currency,
                 "payment_method": transaction.payment_method.value,
                 "risk_score": fraud_assessment.final_score,
-                "risk_tier": fraud_assessment.risk_tier,
+                "risk_tier": (
+                    fraud_assessment.risk_tier.value
+                    if hasattr(fraud_assessment.risk_tier, "value")
+                    else fraud_assessment.risk_tier
+),
                 "triggered_rules": fraud_assessment.triggered_rules,
                 "status": transaction.status.value if hasattr(transaction.status, "value") else str(transaction.status)
             }
-            kafka_event = {
-                "event_type": "fraud.detected",
-                "timestamp": transaction_timestamp.isoformat() + "Z",
-                "correlation_id": str(uuid.uuid4()),
-                "payload": kafka_payload
-            }
             logger.info("Publishing fraud.detected Kafka event")
             try:
-                await KafkaProducer.publish("fraud.detected", kafka_event)
+                await KafkaProducerService().publish(
+                    topic="fraud.detected",
+                    event_type="fraud.detected",
+                    payload=kafka_payload,
+                    correlation_id=str(transaction.id)
+                )
                 logger.info("Kafka fraud.detected event published")
             except Exception as e:
                 logger.error(f"Failed to publish Kafka fraud.detected event: {e}")
+
+        # Publish payment.success or payment.failed events after transaction update
+        if transaction.status == TransactionStatus.SUCCESS:
+            event_type = "payment.success"
+            topic = "payment.success"
+        elif transaction.status == TransactionStatus.FAILED:
+            event_type = "payment.failed"
+            topic = "payment.failed"
+        else:
+            event_type = None
+            topic = None
+
+        if event_type and topic:
+            kafka_payload = {
+                "transaction_id": str(transaction.id),
+                "merchant_id": str(transaction.merchant_id),
+                "razorpay_order_id": transaction.razorpay_order_id,
+                "razorpay_payment_id": transaction.razorpay_payment_id,
+                "amount": float(transaction.amount),
+                "currency": transaction.currency,
+                "payment_method": transaction.payment_method.value,
+                "status": transaction.status.value if hasattr(transaction.status, "value") else str(transaction.status),
+                "risk_score": float(transaction.risk_score) if transaction.risk_score is not None else None,
+                "risk_tier": transaction.risk_tier.value if transaction.risk_tier else None,
+            }
+            logger.info(f"Publishing {event_type} Kafka event")
+            try:
+                await KafkaProducerService().publish(
+                    topic=topic,
+                    event_type=event_type,
+                    payload=kafka_payload,
+                    correlation_id=str(transaction.id)
+                )
+                logger.info(f"Kafka {event_type} event published")
+            except Exception as e:
+                logger.error(f"Failed to publish Kafka {event_type} event: {e}")
 
         return {
             "message": "Transaction updated",
