@@ -246,6 +246,8 @@ services:
       - postgres
       - redis
       - kafka
+    volumes:
+      - ./backend:/app
 
   celery_worker:
     image: python:3.11-slim

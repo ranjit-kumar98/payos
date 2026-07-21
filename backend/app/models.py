@@ -172,3 +172,16 @@ class AuditLog(Base):
     new_value = Column(JSON)
     ip_address = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+# Added EventLog model for Kafka event persistence
+class EventLog(Base):
+    __tablename__ = "event_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, nullable=False)
+    event_type = Column(String, nullable=False)
+    topic = Column(String, nullable=False)
+    partition = Column(Integer, nullable=False)
+    offset = Column(Integer, nullable=False)
+    correlation_id = Column(String, nullable=True)
+    payload = Column(JSON, nullable=False)
+    received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
