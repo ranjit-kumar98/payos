@@ -130,6 +130,7 @@ services:
       --topic payment.success \
       --partitions 3 \
       --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic fraud.flagged      --partitions 3 --replication-factor 1
 
       echo 'All topics created:'
       kafka-topics --bootstrap-server kafka:29092 --list

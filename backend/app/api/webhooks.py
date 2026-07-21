@@ -158,8 +158,8 @@ async def razorpay_webhook(
         await db.refresh(transaction)
         logger.info(f"Transaction {transaction.id} updated with fraud assessment")
 
-        # Publish fraud.detected event if risk tier is MEDIUM or HIGH
-        if fraud_assessment.risk_tier in ("MEDIUM", "HIGH"):
+        # Publish fraud.detected event if risk tier is HIGH
+        if fraud_assessment.risk_tier == "HIGH":
             kafka_payload = {
                 "transaction_id": str(transaction.id),
                 "merchant_id": str(transaction.merchant_id),
@@ -186,6 +186,34 @@ async def razorpay_webhook(
                 logger.info("Kafka fraud.detected event published")
             except Exception as e:
                 logger.error(f"Failed to publish Kafka fraud.detected event: {e}")
+        # Publish fraud.flagged event if risk tier is MEDIUM
+        elif fraud_assessment.risk_tier == "MEDIUM":
+            kafka_payload = {
+                "transaction_id": str(transaction.id),
+                "merchant_id": str(transaction.merchant_id),
+                "amount": float(transaction.amount),
+                "currency": transaction.currency,
+                "payment_method": transaction.payment_method.value,
+                "risk_score": fraud_assessment.final_score,
+                "risk_tier": (
+                    fraud_assessment.risk_tier.value
+                    if hasattr(fraud_assessment.risk_tier, "value")
+                    else fraud_assessment.risk_tier
+),
+                "triggered_rules": fraud_assessment.triggered_rules,
+                "status": transaction.status.value if hasattr(transaction.status, "value") else str(transaction.status)
+            }
+            logger.info("Publishing fraud.flagged Kafka event")
+            try:
+                await KafkaProducerService().publish(
+                    topic="fraud.flagged",
+                    event_type="fraud.flagged",
+                    payload=kafka_payload,
+                    correlation_id=str(transaction.id)
+                )
+                logger.info("Kafka fraud.flagged event published")
+            except Exception as e:
+                logger.error(f"Failed to publish Kafka fraud.flagged event: {e}")
 
         # Publish payment.success or payment.failed events after transaction update
         if transaction.status == TransactionStatus.SUCCESS:

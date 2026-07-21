@@ -41,6 +41,7 @@ class KafkaConsumerService:
                     "payment.success",
                     "payment.failed",
                     "fraud.detected",
+                    "fraud.flagged",
                     bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
                     group_id="payos_consumer_group",
                     auto_offset_reset="earliest",
