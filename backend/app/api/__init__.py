@@ -17,3 +17,18 @@ api_router.include_router(webhooks_router)
 api_router.include_router(transaction_router)
 api_router.include_router(fraud_router)            # <-- ADD
 api_router.include_router(internal_kafka_test_router)
+
+import asyncio
+from fastapi import FastAPI
+from app.services.kafka.consumer import KafkaConsumerService
+
+def setup_kafka_consumer(app: FastAPI):
+    consumer_service = KafkaConsumerService()
+
+    @app.on_event("startup")
+    async def start_kafka_consumer():
+        await consumer_service.start()
+
+    @app.on_event("shutdown")
+    async def stop_kafka_consumer():
+        await consumer_service.stop()

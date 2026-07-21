@@ -10,6 +10,9 @@ app = FastAPI(
     root_path="/api"
 )
 
+from app.api import setup_kafka_consumer
+setup_kafka_consumer(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
