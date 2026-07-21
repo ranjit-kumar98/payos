@@ -8,6 +8,9 @@ from aiokafka.errors import KafkaError
 
 from app.core.config import settings
 
+from app.db.session import async_session
+from app.services.event_log_service import EventLogService
+
 logger = logging.getLogger(__name__)
 
 class KafkaConsumerService:
@@ -79,6 +82,25 @@ class KafkaConsumerService:
                 print(f"Correlation ID: {event.get('correlation_id')}")
                 print(f"Payload: {event.get('payload')}")
                 print("=" * 34)
+
+                # Persist event to database
+
+
+                try:
+                    async with async_session() as session:
+                        await EventLogService.save_event(
+                            db=session,
+                            topic=msg.topic,
+                            event_type=event.get('event_type'),
+                            partition=msg.partition,
+                            offset=msg.offset,
+                            correlation_id=event.get('correlation_id'),
+                            payload=event.get('payload')
+                        )
+                        print(f"Kafka event persisted successfully\nTopic: {msg.topic}\nCorrelation ID: {event.get('correlation_id')}")
+                except Exception as e:
+                    print(f"Failed to persist Kafka event: {e}")
+
         except KafkaError as e:
             print(f"Kafka consumer error: {e}")
             # Optionally implement reconnect logic here
