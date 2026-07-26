@@ -48,6 +48,10 @@ async function startConsumer() {
             console.log('Payload:');
             console.log(JSON.stringify(event, null, 3));
             console.log('=================================================');
+
+            // Delegate to Notification Router
+            const notificationRouter = require('../router/notificationRouter');
+            notificationRouter.route(event);
         },
       });
 
