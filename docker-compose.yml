@@ -271,15 +271,16 @@ services:
     build:
       context: ./notification_service
       dockerfile: Dockerfile
-    container_name: payos_notification_service
+    container_name: notification_service
     restart: unless-stopped
     ports:
       - "3001:3001"
+    env_file:
+      - ./notification_service/.env
     networks:
       - payos-network
     depends_on:
-      - kafka
-      - redis
+      - backend
 
   frontend:
     build:

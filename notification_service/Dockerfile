@@ -1,13 +1,13 @@
-FROM node:18-alpine
+FROM node:lts-alpine
 
 WORKDIR /app
 
-COPY ./src /app/src
-COPY ./package.json /app/package.json
-COPY ./package-lock.json /app/package-lock.json
+COPY package.json package-lock.json* ./
 
-RUN npm install
+RUN npm install --production
 
-EXPOSE 3001
+COPY src ./src
+
+EXPOSE 4000
 
 CMD ["npm", "start"]
