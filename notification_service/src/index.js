@@ -1,20 +1,26 @@
-const WebSocket = require('ws');
+const { startConsumer, stopConsumer } = require('./kafka/consumer');
+const server = require('./server');
 
-const wss = new WebSocket.Server({ port: 3001 });
+async function start() {
+  try {
+    await startConsumer();
+  } catch (err) {
+    console.error('Error starting Kafka consumer:', err);
+  }
+}
 
-wss.on('connection', function connection(ws) {
-  console.log('Client connected');
+start();
 
-  ws.on('message', function incoming(message) {
-    console.log('received: %s', message);
-    ws.send(`Echo: ${message}`);
-  });
-
-  ws.on('close', () => {
-    console.log('Client disconnected');
-  });
-
-  ws.send('Welcome to PayOS Notification Service WebSocket');
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down...');
+  await stopConsumer();
+  process.exit(0);
 });
 
-console.log('WebSocket server running on ws://0.0.0.0:3001');
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down...');
+  await stopConsumer();
+  process.exit(0);
+});
+
+module.exports = server;

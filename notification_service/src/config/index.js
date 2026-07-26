@@ -2,7 +2,7 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-const requiredEnvVars = ['PORT', 'NODE_ENV'];
+const requiredEnvVars = ['PORT', 'NODE_ENV', 'KAFKA_BROKERS'];
 
 for (const varName of requiredEnvVars) {
   if (!process.env[varName]) {
@@ -13,5 +13,6 @@ for (const varName of requiredEnvVars) {
 
 module.exports = {
   port: parseInt(process.env.PORT, 10),
-  nodeEnv: process.env.NODE_ENV
+  nodeEnv: process.env.NODE_ENV,
+  kafkaBrokers: process.env.KAFKA_BROKERS.split(',').map(broker => broker.trim())
 };
