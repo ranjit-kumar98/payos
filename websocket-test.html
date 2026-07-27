@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebSocket Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #status { margin-bottom: 10px; }
+    #messages { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; background: #f9f9f9; }
+    .message { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h1>WebSocket Test</h1>
+  <div id="status">Connecting...</div>
+  <div id="messages"></div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const messagesEl = document.getElementById('messages');
+
+    const ws = new WebSocket('ws://localhost:3001/ws');
+
+    ws.onopen = () => {
+      statusEl.textContent = 'Connected';
+      console.log('WebSocket connected');
+    };
+
+    ws.onmessage = (event) => {
+      console.log('Received:', event.data);
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'message';
+      msgDiv.textContent = event.data;
+      messagesEl.appendChild(msgDiv);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+
+    ws.onclose = () => {
+      statusEl.textContent = 'Disconnected';
+      console.log('WebSocket disconnected');
+    };
+
+    ws.onerror = (error) => {
+      statusEl.textContent = 'Error';
+      console.error('WebSocket error:', error);
+    };
+  </script>
+</body>
+</html>
