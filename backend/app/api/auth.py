@@ -26,22 +26,29 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(b
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    auth_service = AuthService(db)
-    user = await auth_service.get_user_by_email(payload.get("email"))
-    if user is None:
-        raise credentials_exception
 
-    from app.services.redis_service import check_session
-    if not await check_session(user_id, jti):
+    from app.services.redis_service import get_session
+    import logging
+
+    try:
+        session_data = await get_session(user_id, jti)
+    except Exception as e:
+        logging.error(f"Redis error during session validation: {e}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked or session expired")
 
-    return UserResponse(
-        id=str(user.id),
-        email=user.email,
-        full_name=user.full_name,
-        is_active=user.is_active,
-        is_admin=user.is_admin,
+    if not session_data:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked or session expired")
+
+    # Construct UserResponse from Redis session data without querying DB
+    user_response = UserResponse(
+        id=session_data.get("user_id"),
+        email=session_data.get("email"),
+        full_name=session_data.get("full_name"),
+        is_active=session_data.get("is_active", True),
+        is_admin=session_data.get("is_admin", False),
     )
+
+    return user_response
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
@@ -65,7 +72,12 @@ async def login_user(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     from jose import jwt as pyjwt
     decoded = pyjwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     jti = decoded.get("jti")
-    await store_session(str(user.id), jti)
+    await store_session(
+        user_id=str(user.id),
+        token_id=jti,
+        email=user.email,
+        full_name=user.full_name,
+    )
 
     return AuthResponse(access_token=token)
 
