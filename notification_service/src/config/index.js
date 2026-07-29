@@ -9,7 +9,10 @@ const requiredEnvVars = [
   'TWILIO_ACCOUNT_SID',
   'TWILIO_AUTH_TOKEN',
   'TWILIO_PHONE_NUMBER',
-  'TEST_PHONE_NUMBER'
+  'TEST_PHONE_NUMBER',
+  'SENDGRID_API_KEY',
+  'SENDGRID_FROM_EMAIL',
+  'TEST_EMAIL'
 ];
 
 for (const varName of requiredEnvVars) {
@@ -26,5 +29,8 @@ module.exports = {
   twilioAccountSid: process.env.TWILIO_ACCOUNT_SID,
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
   twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER,
-  testPhoneNumber: process.env.TEST_PHONE_NUMBER
+  testPhoneNumber: process.env.TEST_PHONE_NUMBER,
+  sendgridApiKey: process.env.SENDGRID_API_KEY,
+  sendgridFromEmail: process.env.SENDGRID_FROM_EMAIL,
+  testEmail: process.env.TEST_EMAIL
 };
