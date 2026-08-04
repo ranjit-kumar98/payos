@@ -13,10 +13,16 @@ import logging
 
 router = APIRouter()
 
-@router.get("/overview", response_model=AnalyticsOverviewResponse)
+from fastapi import Depends
+from app.services.rate_limit_dependency import rate_limit_dependency
+
+from fastapi import Depends
+from app.services.rate_limit_dependency import rate_limit_dependency
+
+@router.get("/overview", response_model=AnalyticsOverviewResponse, dependencies=[Depends(rate_limit_dependency)])
 async def analytics_overview(
     current_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     from app.models import Merchant
     from sqlalchemy import select
@@ -32,11 +38,9 @@ async def analytics_overview(
 
     cached = await get_analytics_cache(merchant_id)
     if cached:
-        # logging.info("Analytics Cache HIT")
         print("========== CACHE HIT ==========")
         return cached
 
-    # logging.info("Analytics Cache MISS")
     print("========== CACHE MISS ==========")
     analytics = await get_merchant_analytics(db, current_user.id)
     if analytics is None:

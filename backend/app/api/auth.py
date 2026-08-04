@@ -60,7 +60,12 @@ async def register_user(request: RegisterRequest, db: AsyncSession = Depends(get
     token = auth_service.create_token(user)
     return AuthResponse(access_token=token)
 
-@router.post("/login", response_model=AuthResponse)
+from app.services.rate_limit_dependency import rate_limit_dependency
+
+from fastapi import Depends
+from app.services.rate_limit_dependency import rate_limit_dependency
+
+@router.post("/login", response_model=AuthResponse, dependencies=[Depends(rate_limit_dependency)])
 async def login_user(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     auth_service = AuthService(db)
     user = await auth_service.authenticate_user(request.email, request.password)

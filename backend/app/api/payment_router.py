@@ -51,11 +51,14 @@ from sqlalchemy.future import select
 from sqlalchemy.exc import NoResultFound
 import uuid
 
-@router.post("/create-order")
+from fastapi import Depends
+from app.services.rate_limit_dependency import rate_limit_dependency
+
+@router.post("/create-order", dependencies=[Depends(rate_limit_dependency)])
 async def create_order(
     request: PaymentRouteRequest,
     current_user = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     # Find merchant owned by current user
     try:
