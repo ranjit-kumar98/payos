@@ -115,6 +115,11 @@ async def create_order(
     await db.commit()
     await db.refresh(transaction)
 
+    # Invalidate analytics cache for merchant
+    from app.services.analytics_cache_service import invalidate_analytics_cache
+    await invalidate_analytics_cache(merchant.id)
+    print(f"Analytics cache invalidated for merchant: {merchant.id}")
+
     # Publish Kafka event payment.processed using KafkaProducerService
     from app.services.kafka.producer import KafkaProducerService
 

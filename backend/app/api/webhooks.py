@@ -76,6 +76,12 @@ async def razorpay_webhook(
         await db.commit()
         await db.refresh(transaction)
 
+        # Invalidate analytics cache for merchant if status is FAILED
+        from app.services.analytics_cache_service import invalidate_analytics_cache
+        if transaction.status == TransactionStatus.FAILED:
+            await invalidate_analytics_cache(transaction.merchant_id)
+            print(f"Analytics cache invalidated for merchant: {transaction.merchant_id}")
+
         logger.info("Publishing payment.failed Kafka event")
         try:
             await KafkaProducerService().publish(
@@ -157,6 +163,12 @@ async def razorpay_webhook(
         await db.commit()
         await db.refresh(transaction)
         logger.info(f"Transaction {transaction.id} updated with fraud assessment")
+
+        # Invalidate analytics cache for merchant if status is SUCCESS
+        from app.services.analytics_cache_service import invalidate_analytics_cache
+        if transaction.status == TransactionStatus.SUCCESS:
+            await invalidate_analytics_cache(transaction.merchant_id)
+            print(f"Analytics cache invalidated for merchant: {transaction.merchant_id}")
 
         # Publish fraud.detected event if risk tier is HIGH
         if fraud_assessment.risk_tier == "HIGH":
