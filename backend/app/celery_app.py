@@ -1,0 +1,26 @@
+from celery import Celery
+from app.core.config import settings
+import re
+import logging
+
+def mask_redis_url(url: str) -> str:
+    return re.sub(r"(redis://:)(.*)(@)", r"\1****\3", url)
+
+broker_url = settings.REDIS_URL
+
+masked_url = mask_redis_url(broker_url)
+logging.info(f"Celery broker URL: {masked_url}")
+
+celery_app = Celery(
+    "app",
+    broker=broker_url,
+    include=["app.tasks.health"]
+)
+
+celery_app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
+    enable_utc=True,
+)

@@ -252,10 +252,12 @@ services:
       - ./backend:/app
 
   celery_worker:
-    image: python:3.11-slim
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: payos_celery_worker
     restart: unless-stopped
-    command: tail -f /dev/null  # Placeholder to keep container running
+    command: celery -A app.celery_app worker --loglevel=info
     networks:
       - payos-network
     depends_on:
