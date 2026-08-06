@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Enum, Float, Integer, ForeignKey, JSON
+    Column, String, Boolean, DateTime, Enum, Float, Integer, ForeignKey, JSON, Date, Numeric, TIMESTAMP, func
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
@@ -106,7 +106,7 @@ class Transaction(Base):
     razorpay_payment_id = Column(String)
     amount = Column(Float)
     currency = Column(String, default="INR")
-    payment_method = Column(Enum(PaymentMethod))
+    payment_method = Column(Enum(TransactionStatus))
     status = Column(Enum(TransactionStatus))
     risk_score = Column(Float)
     risk_tier = Column(Enum(RiskTier))
@@ -185,3 +185,14 @@ class EventLog(Base):
     correlation_id = Column(String, nullable=True)
     payload = Column(JSON, nullable=False)
     received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class FraudReport(Base):
+    __tablename__ = "fraud_reports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    report_date = Column(Date, nullable=False)
+    total_transactions = Column(Integer, nullable=False, default=0)
+    blocked_transactions = Column(Integer, nullable=False, default=0)
+    blocked_amount = Column(Numeric(18, 2), nullable=False, default=0)
+    top_triggered_rules = Column(JSON, nullable=False, default=[])
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
