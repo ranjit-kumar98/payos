@@ -18,6 +18,8 @@ api_router.include_router(webhooks_router)
 api_router.include_router(transaction_router)
 api_router.include_router(fraud_router)            # <-- ADD
 api_router.include_router(internal_kafka_test_router)
+from app.api.internal_celery_test import router as internal_celery_test_router
+api_router.include_router(internal_celery_test_router, prefix="/internal", tags=["internal"])
 
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 

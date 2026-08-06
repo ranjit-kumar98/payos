@@ -5,5 +5,9 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(name="app.tasks.health.hello_task")
 def hello_task(name: str):
-    logger.info(f"hello_task started with name: {name}")
+    print("=====================================")
+    print(f"CELERY TASK STARTED")
+    print(f"Hello {name}")
+    print("Task executed successfully")
+    print("=====================================")
     return f"Hello {name} from Celery"

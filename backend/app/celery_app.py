@@ -11,10 +11,12 @@ broker_url = settings.REDIS_URL
 masked_url = mask_redis_url(broker_url)
 logging.info(f"Celery broker URL: {masked_url}")
 
+from celery.schedules import crontab
+
 celery_app = Celery(
     "app",
     broker=broker_url,
-    include=["app.tasks.health"]
+    include=["app.tasks.analytics", "app.tasks.health"]
 )
 
 celery_app.conf.update(
@@ -23,4 +25,11 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    beat_schedule={
+        "precompute-analytics-every-15-minute": {
+            "task": "app.tasks.analytics.precompute_analytics_task",
+            "schedule": crontab(minute="*15"),
+            "args": ()
+        }
+    }
 )
