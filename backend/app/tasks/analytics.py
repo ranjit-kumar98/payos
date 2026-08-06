@@ -28,7 +28,9 @@ async def _precompute_analytics():
                 logger.info(f"Processing merchant: {merchant_id}")
                 analytics = await get_merchant_analytics(db, owner_id)
                 if analytics:
+                    print(f"About to cache analytics for merchant {merchant_id}")
                     await set_analytics_cache(merchant_id, analytics, expires_seconds=300, redis_instance=celery_redis_client)
+                    print(f"Cache complete for merchant {merchant_id}")
                     logger.info(f"Analytics cache updated: {merchant_id}")
             except Exception as e:
                 logger.error(f"Error processing merchant {merchant_id}: {e}")
