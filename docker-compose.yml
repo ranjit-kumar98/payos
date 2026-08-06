@@ -257,7 +257,7 @@ services:
       dockerfile: Dockerfile
     container_name: payos_celery_worker
     restart: unless-stopped
-    command: celery -A app.celery_app worker --loglevel=info
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=1
     networks:
       - payos-network
     depends_on:

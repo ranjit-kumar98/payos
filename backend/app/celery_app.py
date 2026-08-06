@@ -28,7 +28,7 @@ celery_app.conf.update(
     beat_schedule={
         "precompute-analytics-every-15-minute": {
             "task": "app.tasks.analytics.precompute_analytics_task",
-            "schedule": crontab(minute="*15"),
+            "schedule": crontab(minute="*"),
             "args": ()
         }
     }

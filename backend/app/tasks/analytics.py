@@ -6,12 +6,13 @@ from app.db.session import async_session
 from app.models import Merchant
 from app.services.analytics_service import get_merchant_analytics
 from app.services.analytics_cache_service import set_analytics_cache
+from app.db.celery_session import get_celery_session
 
 logger = logging.getLogger(__name__)
 
 async def _precompute_analytics():
     logger.info("Starting analytics pre-computation")
-    async with async_session() as db:
+    async with get_celery_session() as db:
         try:
             result = await db.execute(
                 select(Merchant.id, Merchant.owner_id).where(Merchant.is_active == True)
@@ -36,3 +37,4 @@ async def _precompute_analytics():
 @celery_app.task(name="app.tasks.analytics.precompute_analytics_task")
 def precompute_analytics_task():
     asyncio.run(_precompute_analytics())
+   
