@@ -6,6 +6,7 @@ from app.db.session import async_session
 from app.models import Merchant
 from app.services.analytics_service import get_merchant_analytics
 from app.services.analytics_cache_service import set_analytics_cache
+from app.services.celery_redis_service import celery_redis_client
 from app.db.celery_session import get_celery_session
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ async def _precompute_analytics():
                 logger.info(f"Processing merchant: {merchant_id}")
                 analytics = await get_merchant_analytics(db, owner_id)
                 if analytics:
-                    await set_analytics_cache(merchant_id, analytics, expires_seconds=300)
+                    await set_analytics_cache(merchant_id, analytics, expires_seconds=300, redis_instance=celery_redis_client)
                     logger.info(f"Analytics cache updated: {merchant_id}")
             except Exception as e:
                 logger.error(f"Error processing merchant {merchant_id}: {e}")

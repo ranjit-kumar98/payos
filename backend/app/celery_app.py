@@ -16,7 +16,11 @@ from celery.schedules import crontab
 celery_app = Celery(
     "app",
     broker=broker_url,
-    include=["app.tasks.analytics", "app.tasks.health"]
+    include=[
+    "app.tasks.analytics",
+    "app.tasks.health",
+    "app.tasks.fraud_report",
+]
 )
 
 celery_app.conf.update(
@@ -30,6 +34,11 @@ celery_app.conf.update(
             "task": "app.tasks.analytics.precompute_analytics_task",
             "schedule": crontab(minute="*"),
             "args": ()
-        }
+        },
+        "generate-fraud-report-every-minute": {
+    "task": "app.tasks.fraud_report.generate_daily_fraud_report_task",
+    "schedule": crontab(minute="*"),
+    "args": ()
+}
     }
 )
