@@ -106,7 +106,7 @@ class Transaction(Base):
     razorpay_payment_id = Column(String)
     amount = Column(Float)
     currency = Column(String, default="INR")
-    payment_method = Column(Enum(TransactionStatus))
+    payment_method = Column(Enum(PaymentMethod))
     status = Column(Enum(TransactionStatus))
     risk_score = Column(Float)
     risk_tier = Column(Enum(RiskTier))
