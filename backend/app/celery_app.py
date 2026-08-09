@@ -20,6 +20,7 @@ celery_app = Celery(
     "app.tasks.analytics",
     "app.tasks.health",
     "app.tasks.fraud_report",
+    "app.tasks.sla_breach_checker",
 ]
 )
 
@@ -36,9 +37,14 @@ celery_app.conf.update(
             "args": ()
         },
         "generate-fraud-report-every-minute": {
-    "task": "app.tasks.fraud_report.generate_daily_fraud_report_task",
-    "schedule": crontab(minute="*"),
-    "args": ()
-}
+            "task": "app.tasks.fraud_report.generate_daily_fraud_report_task",
+            "schedule": crontab(minute="*"),
+            "args": ()
+        },
+        "check-sla-breaches-every-hour": {
+            "task": "app.tasks.sla_breach_checker.check_sla_breaches_task",
+            "schedule": crontab(minute=0, hour="*"),
+            "args": ()
+        }
     }
 )
