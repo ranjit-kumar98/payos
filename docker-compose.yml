@@ -293,6 +293,19 @@ services:
       - redis
       - kafka
 
+  flower:
+    image: mher/flower:latest
+    container_name: payos_flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    environment:
+      CELERY_BROKER_URL: redis://:payos_redis_pass@redis:6379/0
+    networks:
+      - payos-network
+    depends_on:
+      - redis
+      - celery_worker
 
 
   notification_service:
@@ -311,6 +324,7 @@ services:
       - payos-network
     depends_on:
       - backend
+
 
   frontend:
     build:
