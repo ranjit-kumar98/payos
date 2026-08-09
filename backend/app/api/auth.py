@@ -82,6 +82,8 @@ async def login_user(request: LoginRequest, db: AsyncSession = Depends(get_db)):
         token_id=jti,
         email=user.email,
         full_name=user.full_name,
+        is_active=user.is_active,
+        is_admin=user.is_admin,
     )
 
     return AuthResponse(access_token=token)

@@ -2,11 +2,12 @@ import logging
 from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.exc import NoResultFound
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import FraudReport, Transaction
 
 logger = logging.getLogger(__name__)
 
-async def generate_daily_fraud_report(db):
+async def generate_daily_fraud_report(db: AsyncSession):
     logger.info("Generating fraud report...")
     async with db.begin():
         try:
@@ -58,3 +59,10 @@ async def generate_daily_fraud_report(db):
             await db.rollback()
             logger.error(f"Error generating fraud report: {e}")
             raise
+
+
+async def get_fraud_reports(db: AsyncSession):
+    query = select(FraudReport).order_by(FraudReport.report_date.desc())
+    result = await db.execute(query)
+    reports = result.scalars().all()
+    return reports

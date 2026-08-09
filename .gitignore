@@ -13,3 +13,4 @@ build/
 .idea/
 postgres_data/
 redis_data/
+backend/celerybeat-schedule
