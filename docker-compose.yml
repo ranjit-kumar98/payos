@@ -128,6 +128,7 @@ services:
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.success --partitions 3 --replication-factor 1
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic fraud.flagged      --partitions 3 --replication-factor 1
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic dispute.sla_breached --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic bnpl.loan_created --partitions 3 --replication-factor 1
 
       echo 'All topics created:'
       kafka-topics --bootstrap-server kafka:29092 --list
@@ -267,6 +268,14 @@ services:
       - kafka
     volumes:
       - ./backend:/app
+    # env_file:
+    #   - .env
+    
+    # environment:
+    #   SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+    #   SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL}
+    env_file:
+     - ./backend/.env.sendgrid
 
   celery_beat:
     build:

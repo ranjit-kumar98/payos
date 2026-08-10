@@ -16,3 +16,4 @@ numpy>=1.26
 scikit-learn==1.7.2
 joblib>=1.4
 celery[redis]
+sendgrid>=6.11.0,<7

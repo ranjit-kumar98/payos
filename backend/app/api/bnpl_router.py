@@ -2,6 +2,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List
 
+import logging
+from app.services.kafka.producer import KafkaProducerService
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,15 +78,43 @@ async def create_bnpl_loan(
         db.add(loan)
         await db.flush()
 
+        payload = {
+            "loan_id": str(loan.id),
+            "user_id": str(current_user.id),
+            "customer_email": current_user.email,
+            "customer_name": getattr(current_user, "full_name", None) or "Customer",
+            "transaction_id": request.transaction_id,
+            "principal": str(calculation.principal),
+            "tenure_months": calculation.tenure,
+            "annual_interest_rate": str(calculation.annual_interest_rate),
+            "monthly_emi": str(calculation.monthly_emi),
+            "total_interest": str(calculation.total_interest),
+            "total_repayment": str(calculation.total_repayment),
+            "status": BnplStatus.ACTIVE.value,
+            "repayment_schedule": repayment_schedule,
+        }
+
+    kafka_producer = KafkaProducerService()
+    try:
+        await kafka_producer.publish(
+            topic="bnpl.loan_created",
+            event_type="bnpl.loan_created",
+            payload=payload,
+            correlation_id=str(loan.id),
+        )
+        logging.info("BNPL loan created Kafka event published")
+    except Exception as e:
+        logging.error(f"Failed to publish BNPL loan created event: {e}")
+
     # 4. Build API response explicitly
     return BnplLoanResponse(
         id=str(loan.id),
-        principal=calculation.principal,
-        tenure_months=calculation.tenure,
-        annual_interest_rate=calculation.annual_interest_rate,
-        monthly_emi=calculation.monthly_emi,
-        total_interest=calculation.total_interest,
-        total_repayment=calculation.total_repayment,
+        principal=Decimal(str(loan.principal)),
+        tenure_months=loan.tenure_months,
+        annual_interest_rate=Decimal(str(loan.interest_rate_pa)),
+        monthly_emi=Decimal(str(loan.emi_amount)),
+        total_interest=Decimal(str(loan.total_interest)),
+        total_repayment=Decimal(str(loan.total_payable)),
         status=loan.status.value,
         repayment_schedule=repayment_schedule,
         created_at=loan.created_at,

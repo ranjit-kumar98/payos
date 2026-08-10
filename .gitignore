@@ -14,3 +14,4 @@ build/
 postgres_data/
 redis_data/
 backend/celerybeat-schedule
+backend/.env.sendgrid
