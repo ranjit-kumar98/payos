@@ -49,3 +49,43 @@ async def get_dispute(dispute_id: UUID, db: AsyncSession = Depends(get_db)):
     if not dispute:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dispute not found")
     return dispute
+
+
+@router.post("/{dispute_id}/review", response_model=Dispute)
+async def move_to_review(dispute_id: UUID, db: AsyncSession = Depends(get_db)):
+    service = DisputeService(db)
+    try:
+        dispute = await service.move_to_review(dispute_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    return dispute
+
+
+@router.post("/{dispute_id}/resolve", response_model=Dispute)
+async def resolve_dispute(dispute_id: UUID, resolution_notes: str, db: AsyncSession = Depends(get_db)):
+    service = DisputeService(db)
+    if not resolution_notes or resolution_notes.strip() == "":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="resolution_notes is required and must not be empty")
+    try:
+        dispute = await service.resolve_dispute(dispute_id, resolution_notes)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    return dispute
+
+
+@router.post("/{dispute_id}/reject", response_model=Dispute)
+async def reject_dispute(dispute_id: UUID, resolution_notes: str, db: AsyncSession = Depends(get_db)):
+    service = DisputeService(db)
+    if not resolution_notes or resolution_notes.strip() == "":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="resolution_notes is required and must not be empty")
+    try:
+        dispute = await service.reject_dispute(dispute_id, resolution_notes)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    return dispute

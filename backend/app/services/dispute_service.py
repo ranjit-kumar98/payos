@@ -82,3 +82,50 @@ class DisputeService:
     async def get_dispute(self, dispute_id: UUID) -> Optional[Dispute]:
         dispute = await self.db_session.get(Dispute, dispute_id)
         return dispute
+
+    async def move_to_review(self, dispute_id: UUID) -> Dispute:
+        dispute = await self.db_session.get(Dispute, dispute_id)
+        if not dispute:
+            raise ValueError("Dispute not found")
+        if dispute.status != DisputeStatus.RAISED:
+            raise RuntimeError("Only RAISED disputes can be moved to UNDER_REVIEW")
+        dispute.status = DisputeStatus.UNDER_REVIEW
+        dispute.updated_at = datetime.utcnow()
+        self.db_session.add(dispute)
+        await self.db_session.commit()
+        await self.db_session.refresh(dispute)
+        return dispute
+
+    async def resolve_dispute(self, dispute_id: UUID, resolution_notes: str) -> Dispute:
+        dispute = await self.db_session.get(Dispute, dispute_id)
+        if not dispute:
+            raise ValueError("Dispute not found")
+        if dispute.status != DisputeStatus.UNDER_REVIEW:
+            raise RuntimeError("Only UNDER_REVIEW disputes can be resolved")
+        if not resolution_notes or resolution_notes.strip() == "":
+            raise ValueError("resolution_notes is required and must not be empty")
+        dispute.status = DisputeStatus.RESOLVED
+        dispute.resolution_notes = resolution_notes
+        dispute.resolved_at = datetime.utcnow()
+        dispute.updated_at = datetime.utcnow()
+        self.db_session.add(dispute)
+        await self.db_session.commit()
+        await self.db_session.refresh(dispute)
+        return dispute
+
+    async def reject_dispute(self, dispute_id: UUID, resolution_notes: str) -> Dispute:
+        dispute = await self.db_session.get(Dispute, dispute_id)
+        if not dispute:
+            raise ValueError("Dispute not found")
+        if dispute.status != DisputeStatus.UNDER_REVIEW:
+            raise RuntimeError("Only UNDER_REVIEW disputes can be rejected")
+        if not resolution_notes or resolution_notes.strip() == "":
+            raise ValueError("resolution_notes is required and must not be empty")
+        dispute.status = DisputeStatus.REJECTED
+        dispute.resolution_notes = resolution_notes
+        dispute.resolved_at = datetime.utcnow()
+        dispute.updated_at = datetime.utcnow()
+        self.db_session.add(dispute)
+        await self.db_session.commit()
+        await self.db_session.refresh(dispute)
+        return dispute
