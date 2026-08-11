@@ -28,6 +28,10 @@ api_router.include_router(internal_celery_test_router, prefix="/internal", tags=
 
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 
+# Register dispute router
+from app.api.dispute_router import router as dispute_router
+api_router.include_router(dispute_router, prefix="/disputes", tags=["disputes"])
+
 import asyncio
 from fastapi import FastAPI
 from app.services.kafka.consumer import KafkaConsumerService
