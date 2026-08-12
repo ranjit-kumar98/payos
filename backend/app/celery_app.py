@@ -19,12 +19,13 @@ celery_app = Celery(
     "app",
     broker=broker_url,
     include=[
-        "app.tasks.analytics",
-        "app.tasks.health",
-        "app.tasks.fraud_report",
-        "app.tasks.sla_breach_checker",
-        "app.tasks.bnpl_email",
-    ],
+    "app.tasks.analytics",
+    "app.tasks.health",
+    "app.tasks.fraud_report",
+    "app.tasks.sla_breach_checker",
+    "app.tasks.bnpl_email",
+    "app.tasks.dispute_email",
+],
 )
 
 
@@ -35,14 +36,14 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     beat_schedule={
-        "precompute-analytics-every-15-minute": {
+        "precompute-analytics-every-hour-minute": {
             "task": "app.tasks.analytics.precompute_analytics_task",
-            "schedule": crontab(minute="*"),
+          "schedule": crontab(minute=0, hour="*"),
             "args": (),
         },
-        "generate-fraud-report-every-minute": {
+        "generate-fraud-report-every-hour": {
             "task": "app.tasks.fraud_report.generate_daily_fraud_report_task",
-            "schedule": crontab(minute="*"),
+          "schedule": crontab(minute=0, hour="*"),
             "args": (),
         },
         "check-sla-breaches-every-hour": {

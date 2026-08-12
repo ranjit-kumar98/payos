@@ -5,12 +5,28 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Dispute, Transaction, TransactionStatus, DisputeStatus, DisputeReason
+from app.models import (
+    Dispute,
+    Transaction,
+    Merchant,
+    TransactionStatus,
+    DisputeStatus,
+    DisputeReason,
+)
+import json
+import logging
+
+from app.services.kafka.consumer import KafkaConsumerService
+from app.services.kafka.producer import KafkaProducerService
+from app.tasks.dispute_email import send_dispute_raised_email, send_dispute_resolution_email
+
+logger = logging.getLogger(__name__)
 
 
 class DisputeService:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
+        self.kafka_producer = KafkaProducerService()
 
     async def raise_dispute(self, transaction_id: UUID, reason: DisputeReason, description: Optional[str] = None) -> Dispute:
         # Validate transaction existence
@@ -45,6 +61,51 @@ class DisputeService:
         self.db_session.add(dispute)
         await self.db_session.commit()
         await self.db_session.refresh(dispute)
+
+        merchant = await self.db_session.get(Merchant, transaction.merchant_id)
+        if not merchant:
+            raise ValueError("Merchant not found")
+
+        merchant_email = merchant.email
+        customer_email = transaction.customer_email
+
+        
+
+        # Publish Kafka event dispute.raised
+        try:
+            event_payload = {
+                "dispute_id": str(dispute.id),
+                "transaction_id": str(dispute.transaction_id),
+                "merchant_id": str(dispute.merchant_id),
+                "reason": dispute.reason.value,
+                "status": dispute.status.value,
+                "raised_at": dispute.raised_at.isoformat(),
+                "sla_deadline": dispute.sla_deadline.isoformat(),
+            }
+            await self.kafka_producer.publish(
+                topic="dispute.raised",
+                event_type="dispute.raised",
+                payload=event_payload,
+            )
+        except Exception as e:
+            logger.error(f"Failed to publish dispute.raised event: {e}")
+
+        # Queue Celery email task to notify merchant
+        try:
+            email_payload = {
+                "merchant_email": merchant_email,
+                "merchant_id": str(dispute.merchant_id),
+                "dispute_id": str(dispute.id),
+                "transaction_id": str(dispute.transaction_id),
+                "reason": dispute.reason.value,
+                "status": dispute.status.value,
+                "raised_at": dispute.raised_at.isoformat(),
+                "sla_deadline": dispute.sla_deadline.isoformat(),
+            }
+            send_dispute_raised_email.delay(email_payload)
+        except Exception as e:
+            logger.error(f"Failed to queue dispute raised email task: {e}")
+
         return dispute
 
     async def list_disputes(
@@ -100,6 +161,16 @@ class DisputeService:
         dispute = await self.db_session.get(Dispute, dispute_id)
         if not dispute:
             raise ValueError("Dispute not found")
+
+        transaction = await self.db_session.get(Transaction, dispute.transaction_id)
+        merchant = await self.db_session.get(Merchant, dispute.merchant_id)
+
+        if not transaction:
+            raise ValueError("Transaction not found")
+
+        if not merchant:
+            raise ValueError("Merchant not found")
+        
         if dispute.status != DisputeStatus.UNDER_REVIEW:
             raise RuntimeError("Only UNDER_REVIEW disputes can be resolved")
         if not resolution_notes or resolution_notes.strip() == "":
@@ -111,6 +182,46 @@ class DisputeService:
         self.db_session.add(dispute)
         await self.db_session.commit()
         await self.db_session.refresh(dispute)
+
+        # Publish Kafka event dispute.resolved
+        try:
+            event_payload = {
+                "dispute_id": str(dispute.id),
+                "transaction_id": str(dispute.transaction_id),
+                "merchant_id": str(dispute.merchant_id),
+                "customer_email":transaction.customer_email,
+                "status": dispute.status.value,
+                "resolution_notes": dispute.resolution_notes,
+                "resolved_at": dispute.resolved_at.isoformat(),
+            }
+
+            await self.kafka_producer.publish(
+                topic="dispute.resolved",
+                event_type="dispute.resolved",
+                payload=event_payload,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to publish dispute.resolved event: {e}")
+
+        # Queue Celery email task to notify merchant and customer
+        try:
+            email_payload = {
+                "merchant_email": merchant.email,
+                "customer_email": transaction.customer_email,
+                "merchant_id": str(dispute.merchant_id),
+                "dispute_id": str(dispute.id),
+                "transaction_id": str(dispute.transaction_id),
+                "status": dispute.status.value,
+                "resolution_notes": dispute.resolution_notes,
+                "resolved_at": dispute.resolved_at.isoformat(),
+            }
+
+            send_dispute_resolution_email.delay(email_payload)
+
+        except Exception as e:
+            logger.error(f"Failed to queue dispute resolved email task: {e}")
+
         return dispute
 
     async def reject_dispute(self, dispute_id: UUID, resolution_notes: str) -> Dispute:
@@ -128,4 +239,49 @@ class DisputeService:
         self.db_session.add(dispute)
         await self.db_session.commit()
         await self.db_session.refresh(dispute)
+
+        transaction = await self.db_session.get(Transaction, dispute.transaction_id)
+        merchant = await self.db_session.get(Merchant, dispute.merchant_id)
+
+        if not transaction:
+            raise ValueError("Transaction not found")
+
+        if not merchant:
+            raise ValueError("Merchant not found")
+
+        # Publish Kafka event dispute.rejected
+        try:
+            event_payload = {
+                "dispute_id": str(dispute.id),
+                "transaction_id": str(dispute.transaction_id),
+                "merchant_id": str(dispute.merchant_id),
+                "customer_email": transaction.customer_email,
+                "status": dispute.status.value,
+                "resolution_notes": dispute.resolution_notes,
+                "resolved_at": dispute.resolved_at.isoformat(),
+            }
+            await self.kafka_producer.publish(
+                topic="dispute.rejected",
+                event_type="dispute.rejected",
+                payload=event_payload,
+            )
+        except Exception as e:
+            logger.error(f"Failed to publish dispute.rejected event: {e}")
+
+        # Queue Celery email task to notify merchant and customer
+        try:
+            email_payload = {
+                "merchant_email":  merchant.email,
+                "customer_email": transaction.customer_email,
+                "merchant_id": str(dispute.merchant_id),
+                "dispute_id": str(dispute.id),
+                "transaction_id": str(dispute.transaction_id),
+                "status": dispute.status.value,
+                "resolution_notes": dispute.resolution_notes,
+                "resolved_at": dispute.resolved_at.isoformat(),
+            }
+            send_dispute_resolution_email.delay(email_payload)
+        except Exception as e:
+            logger.error(f"Failed to queue dispute rejected email task: {e}")
+
         return dispute
