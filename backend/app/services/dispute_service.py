@@ -28,6 +28,38 @@ class DisputeService:
         self.db_session = db_session
         self.kafka_producer = KafkaProducerService()
 
+    async def mark_sla_breaches(self):
+        """
+        Find disputes with status RAISED or UNDER_REVIEW,
+        ignore disputes already marked is_sla_breached=True,
+        determine breach using dispute.sla_deadline,
+        set is_sla_breached=True for overdue disputes,
+        commit the changes,
+        and return the disputes that were marked as breached.
+        """
+        from datetime import datetime
+        from sqlalchemy import select
+        from app.models import Dispute, DisputeStatus
+
+        stmt = select(Dispute).where(
+            Dispute.status.in_([DisputeStatus.RAISED, DisputeStatus.UNDER_REVIEW]),
+            Dispute.is_sla_breached == False,
+            Dispute.sla_deadline != None
+        )
+        result = await self.db_session.execute(stmt)
+        disputes = result.scalars().all()
+
+        breached_disputes = []
+        now = datetime.utcnow()
+        for dispute in disputes:
+            if dispute.sla_deadline and now > dispute.sla_deadline:
+                dispute.is_sla_breached = True
+                breached_disputes.append(dispute)
+
+        if breached_disputes:
+            await self.db_session.commit()
+
+        return breached_disputes
     async def raise_dispute(self, transaction_id: UUID, reason: DisputeReason, description: Optional[str] = None) -> Dispute:
         # Validate transaction existence
         transaction = await self.db_session.get(Transaction, transaction_id)

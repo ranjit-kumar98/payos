@@ -7,6 +7,7 @@ from app.celery_app import celery_app
 from app.models import Dispute, DisputeStatus
 from app.db.celery_session import get_celery_session
 from app.services.kafka.producer import KafkaProducerService
+from app.services.dispute_service import DisputeService
 
 logger = logging.getLogger(__name__)
 
@@ -17,28 +18,17 @@ def check_sla_breaches_task():
 
 async def _check_sla_breaches():
     async with get_celery_session() as db:
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
         try:
-            # Query disputes with status RAISED or UNDER_REVIEW, older than 7 days, and not yet SLA breached
-            stmt = select(Dispute).where(
-                or_(
-                    Dispute.status == DisputeStatus.RAISED,
-                    Dispute.status == DisputeStatus.UNDER_REVIEW
-                ),
-                Dispute.raised_at < seven_days_ago,
-                Dispute.is_sla_breached == False
-            )
-            result = await db.execute(stmt)
-            disputes = result.scalars().all()
+            dispute_service = DisputeService(db)
+            breached_disputes = await dispute_service.mark_sla_breaches()
 
-            if not disputes:
+            if not breached_disputes:
                 logger.info("No disputes found for SLA breach update")
                 return
 
             kafka_producer = KafkaProducerService()
 
-            for dispute in disputes:
-                dispute.is_sla_breached = True
+            for dispute in breached_disputes:
                 await db.flush()  # flush update before publishing event
 
                 event_payload = {
