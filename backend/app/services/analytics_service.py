@@ -1,8 +1,8 @@
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, Date
 from app.models import Merchant, Transaction
 import asyncio
-
 from datetime import datetime, timedelta
 
 async def get_merchant_analytics(db: AsyncSession, owner_id: int, days: int = 30):
@@ -77,3 +77,63 @@ async def get_merchant_analytics(db: AsyncSession, owner_id: int, days: int = 30
         "total_successful_volume": float(total_successful_volume),
         "success_rate": success_rate
     }
+
+async def get_daily_gmv_trend(db: AsyncSession, owner_id: int, days: int = 30):
+    # Find merchant for current user
+    result = await db.execute(select(Merchant).filter(Merchant.owner_id == owner_id))
+    merchant = result.scalars().first()
+    if not merchant:
+        return None
+
+    merchant_id = merchant.id
+
+    cutoff_date = datetime.utcnow().date() - timedelta(days=days - 1)
+
+    # Query daily aggregated data grouped by date
+    daily_query = (
+        select(
+            cast(Transaction.created_at, Date).label("date"),
+            func.count(Transaction.id).label("transaction_count"),
+            func.count(Transaction.id).filter(Transaction.status == "SUCCESS").label("success_count"),
+            func.count(Transaction.id).filter(Transaction.status == "FAILED").label("failed_count"),
+            func.count(Transaction.id).filter(Transaction.status == "BLOCKED").label("blocked_count"),
+            func.coalesce(func.sum(Transaction.amount).filter(Transaction.status == "SUCCESS"), 0).label("total_gmv")
+        )
+        .filter(
+            Transaction.merchant_id == merchant_id,
+            Transaction.created_at >= cutoff_date
+        )
+        .group_by("date")
+        .order_by("date")
+    )
+
+    result = await db.execute(daily_query)
+    rows = result.all()
+
+    # Build a dict keyed by date string for quick lookup
+    data_by_date = {row.date.strftime("%Y-%m-%d"): {
+        "date": row.date.strftime("%Y-%m-%d"),
+        "transaction_count": row.transaction_count,
+        "success_count": row.success_count,
+        "failed_count": row.failed_count,
+        "blocked_count": row.blocked_count,
+        "total_gmv": round(float(row.total_gmv), 2)
+    } for row in rows}
+
+    # Fill in missing dates with zeros
+    trend = []
+    for i in range(days):
+        day = (cutoff_date + timedelta(days=i)).strftime("%Y-%m-%d")
+        if day in data_by_date:
+            trend.append(data_by_date[day])
+        else:
+            trend.append({
+                "date": day,
+                "transaction_count": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "blocked_count": 0,
+                "total_gmv": 0.0
+            })
+
+    return trend
