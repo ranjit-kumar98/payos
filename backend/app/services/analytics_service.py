@@ -137,3 +137,120 @@ async def get_daily_gmv_trend(db: AsyncSession, owner_id: int, days: int = 30):
             })
 
     return trend
+
+from app.models import PaymentMethod, TransactionStatus
+from sqlalchemy import case
+
+async def get_payment_method_breakdown(db: AsyncSession, owner_id: int, days: int = 30):
+    # Find merchant for current user
+    result = await db.execute(select(Merchant).filter(Merchant.owner_id == owner_id))
+    merchant = result.scalars().first()
+    if not merchant:
+        return None
+
+    merchant_id = merchant.id
+
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+    payment_methods = [PaymentMethod.UPI, PaymentMethod.CARD, PaymentMethod.WALLET, PaymentMethod.NETBANKING]
+
+    # Query payment method breakdown
+    query = (
+        select(
+            Transaction.payment_method.label("method"),
+            func.count(Transaction.id).label("count"),
+            func.coalesce(func.sum(case((Transaction.status == TransactionStatus.SUCCESS, Transaction.amount), else_=0)), 0).label("total_gmv"),
+            (func.count(case((Transaction.status == TransactionStatus.SUCCESS, 1))) * 100.0 / func.count(Transaction.id)).label("success_rate")
+        )
+        .filter(
+            Transaction.merchant_id == merchant_id,
+            Transaction.created_at >= cutoff_date,
+            Transaction.payment_method.in_(payment_methods)
+        )
+        .group_by(Transaction.payment_method)
+    )
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    # Build dict for quick lookup
+    data_by_method = {
+    row.method.value if hasattr(row.method, "value") else row.method: {
+        "method": row.method.value if hasattr(row.method, "value") else row.method,
+        "count": row.count,
+        "total_gmv": round(float(row.total_gmv), 2),
+        "success_rate": round(float(row.success_rate) if row.success_rate is not None else 0.0, 2)
+    }
+    for row in rows
+}
+
+    # Ensure all payment methods are present
+    breakdown = []
+    for method in payment_methods:
+        method_value = method.value if hasattr(method, 'value') else method
+        if method_value in data_by_method:
+            breakdown.append(data_by_method[method_value])
+        else:
+            breakdown.append({
+                "method": method_value,
+                "count": 0,
+                "total_gmv": 0.0,
+                "success_rate": 0.0
+            })
+
+    return breakdown
+
+async def get_decline_reasons(db: AsyncSession, owner_id: int, days: int = 30):
+    # Find merchant for current user
+    result = await db.execute(select(Merchant).filter(Merchant.owner_id == owner_id))
+    merchant = result.scalars().first()
+    if not merchant:
+        return None
+
+    merchant_id = merchant.id
+
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+    # Query total failed transactions count
+    total_failed_stmt = select(func.count(Transaction.id)).filter(
+        Transaction.merchant_id == merchant_id,
+        Transaction.created_at >= cutoff_date,
+        Transaction.status == TransactionStatus.FAILED
+    )
+    total_failed_result = await db.execute(total_failed_stmt)
+    total_failed = total_failed_result.scalar() or 0
+
+    if total_failed == 0:
+        return []
+
+    # Query top 5 decline reasons
+    decline_query = (
+        select(
+            Transaction.decline_reason.label("reason"),
+            func.count(Transaction.id).label("count")
+        )
+        .filter(
+            Transaction.merchant_id == merchant_id,
+            Transaction.created_at >= cutoff_date,
+            Transaction.status == TransactionStatus.FAILED,
+            Transaction.decline_reason.isnot(None)
+        )
+        .group_by(Transaction.decline_reason)
+        .order_by(func.count(Transaction.id).desc())
+        .limit(5)
+    )
+
+    decline_result = await db.execute(decline_query)
+    rows = decline_result.all()
+
+    # Build response list with percentage
+    reasons = []
+    for row in rows:
+        percentage = (row.count / total_failed) * 100 if total_failed > 0 else 0.0
+        reasons.append({
+            "reason": row.reason,
+            "count": row.count,
+            "percentage": round(percentage, 2)
+        })
+
+    return reasons

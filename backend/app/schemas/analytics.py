@@ -20,3 +20,20 @@ class AnalyticsOverviewResponse(BaseModel):
     blocked_transactions: int
     total_successful_volume: float
     success_rate: float
+
+class PaymentMethodBreakdownItem(BaseModel):
+    method: str
+    count: int
+    total_gmv: float
+    success_rate: float
+
+class PaymentMethodBreakdownResponse(RootModel[list[PaymentMethodBreakdownItem]]):
+    pass
+
+class DeclineReasonItem(BaseModel):
+    reason: str
+    count: int
+    percentage: float
+
+class DeclineReasonsResponse(RootModel[list[DeclineReasonItem]]):
+    pass
