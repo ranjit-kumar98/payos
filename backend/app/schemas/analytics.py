@@ -37,3 +37,23 @@ class DeclineReasonItem(BaseModel):
 
 class DeclineReasonsResponse(RootModel[list[DeclineReasonItem]]):
     pass
+
+class FraudHeatmapItem(BaseModel):
+    hour: int  # 0-23
+    low_risk_count: int
+    medium_risk_count: int
+    high_risk_count: int
+
+class FraudHeatmapResponse(RootModel[list[FraudHeatmapItem]]):
+    pass
+
+class TopMerchantItem(BaseModel):
+    merchant_name: str
+    business_type: str
+    gmv: float
+    transaction_count: int
+    success_rate: float
+    dispute_rate: float
+
+class TopMerchantsResponse(RootModel[list[TopMerchantItem]]):
+    pass

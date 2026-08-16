@@ -1,9 +1,9 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Date
-from app.models import Merchant, Transaction
 import asyncio
 from datetime import datetime, timedelta
+from app.models import Merchant, Transaction, Dispute, TransactionStatus
 
 async def get_merchant_analytics(db: AsyncSession, owner_id: int, days: int = 30):
     # Find merchant for current user
@@ -254,3 +254,122 @@ async def get_decline_reasons(db: AsyncSession, owner_id: int, days: int = 30):
         })
 
     return reasons
+
+async def get_fraud_heatmap(db: AsyncSession, owner_id: int, days: int = 30):
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, func
+    from app.models import Merchant, Transaction, RiskTier
+
+    # Find merchant for current user
+    result = await db.execute(select(Merchant).filter(Merchant.owner_id == owner_id))
+    merchant = result.scalars().first()
+    if not merchant:
+        return None
+    merchant_id = merchant.id
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    # Query counts grouped by hour and risk tier
+    query = (
+        select(
+            func.extract('hour', Transaction.created_at).label('hour'),
+            Transaction.risk_tier,
+            func.count(Transaction.id).label('count')
+        )
+        .filter(
+            Transaction.merchant_id == merchant_id,
+            Transaction.created_at >= cutoff
+        )
+        .group_by('hour', Transaction.risk_tier)
+        .order_by('hour')
+    )
+    result = await db.execute(query)
+    rows = result.all()
+
+    # Initialize 24 buckets with zero counts
+    heatmap = []
+    for hour in range(24):
+        heatmap.append({
+            'hour': hour,
+            'low_risk_count': 0,
+            'medium_risk_count': 0,
+            'high_risk_count': 0
+        })
+
+    # Fill counts from query results
+    for row in rows:
+        hour = int(row.hour)
+        tier = row.risk_tier
+        count = row.count
+        if tier == RiskTier.LOW:
+            heatmap[hour]['low_risk_count'] = count
+        elif tier == RiskTier.MEDIUM:
+            heatmap[hour]['medium_risk_count'] = count
+        elif tier == RiskTier.HIGH:
+            heatmap[hour]['high_risk_count'] = count
+
+    return heatmap
+
+async def get_top_merchants(db: AsyncSession, owner_id: int, days: int = 30):
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, func, case
+    from app.models import Merchant, Transaction, Dispute
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    # Subquery for total transactions and successful transactions per merchant
+    total_tx_subq = (
+        select(
+            Transaction.merchant_id,
+            func.count(Transaction.id).label('total_tx'),
+            func.count(case((Transaction.status == TransactionStatus.SUCCESS, 1))).label('success_tx'),
+            func.coalesce(func.sum(case((Transaction.status == TransactionStatus.SUCCESS, Transaction.amount), else_=0)), 0).label('total_gmv')
+        )
+        .filter(Transaction.created_at >= cutoff)
+        .group_by(Transaction.merchant_id)
+        .subquery()
+    )
+
+    # Subquery for disputes count per merchant
+    dispute_subq = (
+        select(
+            Dispute.merchant_id,
+            func.count(Dispute.id).label('dispute_count')
+        )
+        .filter(Dispute.raised_at >= cutoff)
+        .group_by(Dispute.merchant_id)
+        .subquery()
+    )
+
+    # Join merchants with subqueries
+    query = (
+        select(
+            Merchant.name.label('merchant_name'),
+            Merchant.business_type,
+            total_tx_subq.c.total_gmv,
+            total_tx_subq.c.total_tx,
+            (total_tx_subq.c.success_tx * 100.0 / total_tx_subq.c.total_tx).label('success_rate'),
+            (func.coalesce(dispute_subq.c.dispute_count, 0) * 100.0 / total_tx_subq.c.total_tx).label('dispute_rate')
+        )
+        .join(total_tx_subq, Merchant.id == total_tx_subq.c.merchant_id)
+        .outerjoin(dispute_subq, Merchant.id == dispute_subq.c.merchant_id)
+        .order_by(total_tx_subq.c.total_gmv.desc())
+        .limit(10)
+    )
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    # Format results
+    top_merchants = []
+    for row in rows:
+        top_merchants.append({
+            'merchant_name': row.merchant_name,
+            'business_type': row.business_type.value if row.business_type else None,
+            'gmv': float(row.total_gmv),
+            'transaction_count': row.total_tx,
+            'success_rate': round(float(row.success_rate), 2) if row.success_rate is not None else 0.0,
+            'dispute_rate': round(float(row.dispute_rate), 2) if row.dispute_rate is not None else 0.0
+        })
+
+    return top_merchants
