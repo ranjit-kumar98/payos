@@ -3,7 +3,9 @@ from sqlalchemy import select, func
 from app.models import Merchant, Transaction
 import asyncio
 
-async def get_merchant_analytics(db: AsyncSession, owner_id: int):
+from datetime import datetime, timedelta
+
+async def get_merchant_analytics(db: AsyncSession, owner_id: int, days: int = 30):
     # Find merchant for current user
     result = await db.execute(select(Merchant).filter(Merchant.owner_id == owner_id))
     merchant = result.scalars().first()
@@ -12,27 +14,37 @@ async def get_merchant_analytics(db: AsyncSession, owner_id: int):
 
     merchant_id = merchant.id
 
-    # Prepare queries
-    total_transactions_stmt = select(func.count(Transaction.id)).filter(Transaction.merchant_id == merchant_id)
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+    # Prepare queries with date filtering
+    total_transactions_stmt = select(func.count(Transaction.id)).filter(
+        Transaction.merchant_id == merchant_id,
+        Transaction.created_at >= cutoff_date
+    )
     successful_transactions_stmt = select(func.count(Transaction.id)).filter(
         Transaction.merchant_id == merchant_id,
-        Transaction.status == "SUCCESS"
+        Transaction.status == "SUCCESS",
+        Transaction.created_at >= cutoff_date
     )
     failed_transactions_stmt = select(func.count(Transaction.id)).filter(
         Transaction.merchant_id == merchant_id,
-        Transaction.status == "FAILED"
+        Transaction.status == "FAILED",
+        Transaction.created_at >= cutoff_date
     )
     pending_transactions_stmt = select(func.count(Transaction.id)).filter(
         Transaction.merchant_id == merchant_id,
-        Transaction.status == "PENDING"
+        Transaction.status == "PENDING",
+        Transaction.created_at >= cutoff_date
     )
     blocked_transactions_stmt = select(func.count(Transaction.id)).filter(
         Transaction.merchant_id == merchant_id,
-        Transaction.status == "BLOCKED"
+        Transaction.status == "BLOCKED",
+        Transaction.created_at >= cutoff_date
     )
     total_successful_volume_stmt = select(func.coalesce(func.sum(Transaction.amount), 0)).filter(
         Transaction.merchant_id == merchant_id,
-        Transaction.status == "SUCCESS"
+        Transaction.status == "SUCCESS",
+        Transaction.created_at >= cutoff_date
     )
 
     # Execute all queries concurrently
