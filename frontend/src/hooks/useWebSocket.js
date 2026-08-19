@@ -1,35 +1,41 @@
 import { useEffect, useRef } from 'react';
-import { io } from 'socket.io-client';
 
 export function useWebSocket({ onPaymentSuccess, onFraudDetected }) {
   const socketRef = useRef(null);
 
   useEffect(() => {
-    const socket = io(import.meta.env.VITE_API_URL, {
-      path: '/socket.io',
-    });
+    const socket = new WebSocket('ws://localhost:3001/ws');
     socketRef.current = socket;
 
-    socket.on('connect', () => {
+    socket.onopen = () => {
       console.log('WebSocket connected');
-    });
+    };
 
-    socket.on('payment.success', (data) => {
-      if (onPaymentSuccess) onPaymentSuccess(data);
-    });
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'payment.success' && onPaymentSuccess) {
+          onPaymentSuccess(message);
+        } else if (message.type === 'fraud.detected' && onFraudDetected) {
+          onFraudDetected(message);
+        }
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    };
 
-    socket.on('fraud.detected', (data) => {
-      if (onFraudDetected) onFraudDetected(data);
-    });
+    socket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
 
-    socket.on('disconnect', () => {
+    socket.onclose = () => {
       console.log('WebSocket disconnected');
-    });
+    };
 
     return () => {
-      socket.off('payment.success');
-      socket.off('fraud.detected');
-      socket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
     };
   }, [onPaymentSuccess, onFraudDetected]);
 }
