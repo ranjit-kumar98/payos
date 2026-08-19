@@ -55,4 +55,15 @@ export function getBnplLoans() {
   return apiClient.get('/bnpl/loans');
 }
 
+export async function getTransactions(params) {
+  // params: { status, payment_method, merchant_id, start_date, end_date, page, page_size }
+  const response = await apiClient.get('/transactions/', { params });
+  return response.data;
+}
+
+export async function getTransaction(transactionId) {
+  const response = await apiClient.get(`/transactions/${transactionId}`);
+  return response.data;
+}
+
 export default apiClient;

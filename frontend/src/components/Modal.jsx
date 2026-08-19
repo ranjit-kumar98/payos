@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-export function Modal({ isOpen, onClose, children }) {
+export function Modal({ isOpen, onClose, children, slideOver }) {
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === 'Escape') {
@@ -16,6 +16,24 @@ export function Modal({ isOpen, onClose, children }) {
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
+  if (slideOver) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex bg-black bg-opacity-50"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div
+          className="bg-white shadow-lg w-96 max-w-full h-full fixed right-0 top-0 overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

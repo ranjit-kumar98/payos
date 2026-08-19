@@ -16,6 +16,30 @@ export function formatIndianCurrency(amount) {
 }
 
 // Date formatter for IST timezone
+export function formatDateTimeIST(utcString) {
+  if (!utcString) return '';
+  try {
+    const date = new Date(utcString);
+    // Convert to IST offset +5:30
+    const istOffset = 5 * 60 + 30;
+    const utc = date.getTime() + date.getTimezoneOffset() * 60000;
+    const istTime = new Date(utc + istOffset * 60000);
+
+    const options = {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    };
+    return istTime.toLocaleString('en-IN', options);
+  } catch {
+    return utcString;
+  }
+}
+
+// Date formatter for IST timezone
 export function formatDateIST(dateString) {
   if (!dateString) return '';
   const date = new Date(dateString);
@@ -36,7 +60,6 @@ export function riskScoreToColor(score) {
   return 'red';
 }
 
-// Status to color mapping
 const statusColorMap = {
   pending: 'gray',
   approved: 'green',
@@ -44,6 +67,7 @@ const statusColorMap = {
   failed: 'red',
   success: 'green',
   processing: 'yellow',
+  refunded: 'blue',
   // Add more statuses as needed
 };
 
