@@ -1,41 +1,97 @@
 import { useEffect, useRef } from 'react';
 
-export function useWebSocket({ onPaymentSuccess, onFraudDetected }) {
+const WS_URL = 'ws://localhost:3001/ws';
+
+export function useWebSocket({
+  onPaymentSuccess,
+  onFraudDetected,
+}) {
   const socketRef = useRef(null);
 
+  const paymentSuccessRef = useRef(onPaymentSuccess);
+  const fraudDetectedRef = useRef(onFraudDetected);
+
   useEffect(() => {
-    const socket = new WebSocket('ws://localhost:3001/ws');
-    socketRef.current = socket;
+    paymentSuccessRef.current = onPaymentSuccess;
+  }, [onPaymentSuccess]);
 
-    socket.onopen = () => {
-      console.log('WebSocket connected');
-    };
+  useEffect(() => {
+    fraudDetectedRef.current = onFraudDetected;
+  }, [onFraudDetected]);
 
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'payment.success' && onPaymentSuccess) {
-          onPaymentSuccess(message);
-        } else if (message.type === 'fraud.detected' && onFraudDetected) {
-          onFraudDetected(message);
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+  useEffect(() => {
+  let isUnmounting = false;
+
+  const socket = new WebSocket(WS_URL);
+
+  socketRef.current = socket;
+
+  socket.onopen = () => {
+    if (!isUnmounting) {
+      console.log('WebSocket connected:', WS_URL);
+    }
+  };
+
+  socket.onmessage = (event) => {
+    if (isUnmounting) {
+      return;
+    }
+
+    try {
+      const message = JSON.parse(event.data);
+
+      console.log('WebSocket message:', message);
+
+      if (
+        message.type === 'payment.success' &&
+        paymentSuccessRef.current
+      ) {
+        paymentSuccessRef.current(message);
       }
-    };
 
-    socket.onerror = (error) => {
+      if (
+        message.type === 'fraud.detected' &&
+        fraudDetectedRef.current
+      ) {
+        fraudDetectedRef.current(message);
+      }
+    } catch (error) {
+      console.error('Error parsing WebSocket message:', error);
+    }
+  };
+
+  socket.onerror = (error) => {
+    // Ignore errors caused by React StrictMode cleanup/unmount.
+    if (!isUnmounting) {
       console.error('WebSocket error:', error);
-    };
+    }
+  };
 
-    socket.onclose = () => {
-      console.log('WebSocket disconnected');
-    };
+  socket.onclose = (event) => {
+    if (!isUnmounting) {
+      console.log(
+        'WebSocket disconnected:',
+        event.code,
+        event.reason || 'No reason provided'
+      );
+    }
+  };
 
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.close();
-      }
-    };
-  }, [onPaymentSuccess, onFraudDetected]);
+  return () => {
+    isUnmounting = true;
+
+    if (
+      socket.readyState === WebSocket.OPEN ||
+      socket.readyState === WebSocket.CONNECTING
+    ) {
+      socket.close();
+    }
+
+    if (socketRef.current === socket) {
+      socketRef.current = null;
+    }
+  };
+}, []);
+
+  return socketRef;
 }
