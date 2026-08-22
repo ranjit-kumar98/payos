@@ -66,8 +66,6 @@ export async function getTransaction(transactionId) {
   return response.data;
 }
 
-// Fraud Monitor API functions
-
 export function getFraudReports() {
   return apiClient.get('/fraud-reports').then(res => res.data);
 }
@@ -78,6 +76,32 @@ export function getFraudHeatmap(days) {
 
 export function getHighRiskTransactions(page, size) {
   return apiClient.get(`/fraud/high-risk?page=${page}&size=${size}`).then(res => res.data);
+}
+
+// Disputes API functions
+
+export function getDisputes(params) {
+  return apiClient.get('/disputes', { params });
+}
+
+export function getDispute(disputeId) {
+  return apiClient.get(`/disputes/${disputeId}`);
+}
+
+export function moveDisputeToReview(disputeId) {
+  return apiClient.post(`/disputes/${disputeId}/review`);
+}
+
+export function resolveDispute(disputeId, resolutionNotes) {
+  return apiClient.post(`/disputes/${disputeId}/resolve`, null, {
+    params: { resolution_notes: resolutionNotes },
+  });
+}
+
+export function rejectDispute(disputeId, resolutionNotes) {
+  return apiClient.post(`/disputes/${disputeId}/reject`, null, {
+    params: { resolution_notes: resolutionNotes },
+  });
 }
 
 export default apiClient;
