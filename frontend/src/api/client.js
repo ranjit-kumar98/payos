@@ -101,6 +101,25 @@ export function createBnplLoan(principal, tenure) {
   }).then(res => res.data);
 }
 
+  
+// Payment API functions for Checkout Demo
+
+export function routePayment(amount, currency, paymentMethod) {
+  return apiClient.post('/payments/route', {
+    amount,
+    currency,
+    payment_method: paymentMethod,
+  }).then(res => res.data);
+}
+
+export function createPaymentOrder(amount, currency, paymentMethod) {
+  return apiClient.post('/payments/create-order', {
+    amount,
+    currency,
+    payment_method: paymentMethod,
+  }).then(res => res.data);
+}
+
 // Disputes API functions
 
 export function getDisputes(params) {
