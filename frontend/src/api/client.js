@@ -66,4 +66,18 @@ export async function getTransaction(transactionId) {
   return response.data;
 }
 
+// Fraud Monitor API functions
+
+export function getFraudReports() {
+  return apiClient.get('/fraud-reports').then(res => res.data);
+}
+
+export function getFraudHeatmap(days) {
+  return apiClient.get(`/analytics/fraud-heatmap?days=${days}`).then(res => res.data);
+}
+
+export function getHighRiskTransactions(page, size) {
+  return apiClient.get(`/fraud/high-risk?page=${page}&size=${size}`).then(res => res.data);
+}
+
 export default apiClient;
