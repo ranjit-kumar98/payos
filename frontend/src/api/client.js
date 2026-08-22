@@ -52,7 +52,7 @@ export function getTopMerchants(days) {
 }
 
 export function getBnplLoans() {
-  return apiClient.get('/bnpl/loans');
+  return apiClient.get('/bnpl/loans').then(res => res.data);
 }
 
 export async function getTransactions(params) {
@@ -76,6 +76,29 @@ export function getFraudHeatmap(days) {
 
 export function getHighRiskTransactions(page, size) {
   return apiClient.get(`/fraud/high-risk?page=${page}&size=${size}`).then(res => res.data);
+}
+
+// BNPL API functions
+
+export function checkBnplEligibility(principal, tenure) {
+  return apiClient.post('/bnpl/eligibility', {
+    principal,
+    tenure,
+  }).then(res => res.data);
+}
+
+export function calculateBnpl(principal, tenure) {
+  return apiClient.post('/bnpl/calculate', {
+    principal,
+    tenure,
+  }).then(res => res.data);
+}
+
+export function createBnplLoan(principal, tenure) {
+  return apiClient.post('/bnpl/loans', {
+    principal,
+    tenure,
+  }).then(res => res.data);
 }
 
 // Disputes API functions

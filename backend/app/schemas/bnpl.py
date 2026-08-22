@@ -28,6 +28,42 @@ class BnplLoanCreateRequest(BaseModel):
         description="Associated transaction ID, if any",
     )
 
+class BnplEligibilityRequest(BaseModel):
+    principal: Decimal = Field(
+        ...,
+        description="Amount requested for BNPL",
+    )
+    tenure: int = Field(
+        ...,
+        description="Loan tenure in months",
+    )
+
+
+class BnplEligibilityResponse(BaseModel):
+    eligible: bool
+    message: str
+
+
+class BnplCalculateRequest(BaseModel):
+    principal: Decimal = Field(
+        ...,
+        description="Principal amount for BNPL calculation",
+    )
+    tenure: int = Field(
+        ...,
+        description="Loan tenure in months",
+    )
+
+
+class BnplCalculateResponse(BaseModel):
+    principal: Decimal
+    tenure: int
+    annual_interest_rate: Decimal
+    monthly_emi: Decimal
+    total_interest: Decimal
+    total_repayment: Decimal
+    repayment_schedule: List[BnplRepaymentScheduleResponse]
+
 
 class BnplLoanResponse(BaseModel):
     id: str

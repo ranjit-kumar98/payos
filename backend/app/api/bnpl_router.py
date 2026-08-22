@@ -15,6 +15,10 @@ from app.models import BnplLoan, BnplStatus
 from app.schemas.bnpl import (
     BnplLoanCreateRequest,
     BnplLoanResponse,
+    BnplEligibilityRequest,
+    BnplEligibilityResponse,
+    BnplCalculateRequest,
+    BnplCalculateResponse,
 )
 from app.services.bnpl_service import BnplService
 
@@ -24,6 +28,70 @@ router = APIRouter(
     tags=["bnpl"],
 )
 
+@router.post(
+    "/eligibility",
+    response_model=BnplEligibilityResponse,
+)
+async def check_bnpl_eligibility(
+    request: BnplEligibilityRequest,
+    current_user=Depends(get_current_user),
+):
+    try:
+        BnplService.validate_eligibility(
+            principal=request.principal,
+            tenure=request.tenure,
+        )
+
+        return BnplEligibilityResponse(
+            eligible=True,
+            message="BNPL is eligible for the requested amount and tenure.",
+        )
+
+    except ValueError as exc:
+        return BnplEligibilityResponse(
+            eligible=False,
+            message=str(exc),
+        )
+@router.post(
+    "/calculate",
+    response_model=BnplCalculateResponse,
+)
+async def calculate_bnpl(
+    request: BnplCalculateRequest,
+    current_user=Depends(get_current_user),
+):
+    try:
+        calculation = BnplService.calculate_reducing_balance_emi(
+            principal=request.principal,
+            tenure=request.tenure,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    repayment_schedule = [
+        {
+            "month": entry.month,
+            "emi": entry.emi,
+            "interest": entry.interest,
+            "principal": entry.principal,
+            "remaining_balance": entry.remaining_balance,
+        }
+        for entry in calculation.repayment_schedule
+    ]
+
+    return BnplCalculateResponse(
+        principal=calculation.principal,
+        tenure=calculation.tenure,
+        annual_interest_rate=calculation.annual_interest_rate,
+        monthly_emi=calculation.monthly_emi,
+        total_interest=calculation.total_interest,
+        total_repayment=calculation.total_repayment,
+        repayment_schedule=repayment_schedule,
+    )
 
 @router.post(
     "/loans",
