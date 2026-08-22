@@ -1,10 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getTransactions, getTransaction } from '../api/client';
+
+import {
+  getTransactions,
+  getTransaction,
+  raiseDispute,
+} from '../api/client';
+
 import { StatusBadge } from '../components/StatusBadge';
-import { LoadingSpinner} from '../components/LoadingSpinner';
-import { ToastProvider } from '../components/ToastProvider';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { ToastProvider, useToast } from '../components/ToastProvider';
 import { Modal } from '../components/Modal';
-import { formatDateTimeIST, formatIndianCurrency } from '../utils/formatters';
+import {
+  formatDateTimeIST,
+  formatIndianCurrency,
+} from '../utils/formatters';
 import { EmptyState } from '../components/EmptyState';
 
 const STATUS_OPTIONS = [
@@ -29,8 +38,15 @@ function shortenTxId(txId) {
   return txId.slice(0, 4) + '...' + txId.slice(-4);
 }
 
-export default function Transactions() {
-  // Draft filter state (form inputs)
+/*
+ * Inner component.
+ *
+ * IMPORTANT:
+ * This component is rendered INSIDE ToastProvider,
+ * so useToast() is safe here.
+ */
+function TransactionsContent() {
+  // Draft filter state
   const [filters, setFilters] = useState({
     status: '',
     payment_method: '',
@@ -38,7 +54,7 @@ export default function Transactions() {
     end_date: '',
   });
 
-  // Applied filters state (used for API requests)
+  // Applied filters state
   const [appliedFilters, setAppliedFilters] = useState({
     status: '',
     payment_method: '',
@@ -46,28 +62,45 @@ export default function Transactions() {
     end_date: '',
   });
 
-  // Pagination state
+  // Pagination
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
-  // Data state
+  // Data
   const [transactions, setTransactions] = useState([]);
   const [total, setTotal] = useState(0);
 
-  // Loading and error states
+  // Loading/error
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Slide-over detail state
+  // Transaction detail slide-over
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState(null);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
 
-  // Fetch transactions list
+  // Dispute modal
+  const [disputeModalOpen, setDisputeModalOpen] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeDescription, setDisputeDescription] = useState('');
+  const [disputeSubmitting, setDisputeSubmitting] = useState(false);
+  const [disputeSubmitted, setDisputeSubmitted] = useState(false);
+
+  // Toast hook is now safely inside ToastProvider
+  const { addToast } = useToast();
+
+  // Calculate last page
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+
+  // ------------------------------------------------------------
+  // Fetch transactions
+  // ------------------------------------------------------------
+
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
       const params = {
         status: appliedFilters.status || undefined,
@@ -77,10 +110,14 @@ export default function Transactions() {
         page,
         page_size: pageSize,
       };
+
       const data = await getTransactions(params);
-      setTransactions(data.items);
-      setTotal(data.total);
+
+      setTransactions(data.items || []);
+      setTotal(data.total || 0);
     } catch (err) {
+      console.error('Failed to load transactions:', err);
+
       setError('Failed to load transactions. Please try again.');
       setTransactions([]);
       setTotal(0);
@@ -89,28 +126,53 @@ export default function Transactions() {
     }
   }, [appliedFilters, page]);
 
+  // ------------------------------------------------------------
   // Fetch transaction detail
+  // ------------------------------------------------------------
+
   const fetchTransactionDetail = useCallback(async (transactionId) => {
     setDetailLoading(true);
     setDetailError(null);
     setSelectedTransaction(null);
+
+    // Reset dispute state whenever a new transaction is opened
+    setDisputeSubmitted(false);
+    setDisputeModalOpen(false);
+    setDisputeReason('');
+    setDisputeDescription('');
+
     try {
       const data = await getTransaction(transactionId);
       setSelectedTransaction(data);
     } catch (err) {
+      console.error('Failed to load transaction detail:', err);
       setDetailError('Failed to load transaction details.');
     } finally {
       setDetailLoading(false);
     }
   }, []);
 
-  // Handle Apply button click
+  // ------------------------------------------------------------
+  // Fetch transactions whenever filters/page change
+  // ------------------------------------------------------------
+
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
+
+  // ------------------------------------------------------------
+  // Apply filters
+  // ------------------------------------------------------------
+
   const handleApplyFilters = () => {
     setAppliedFilters(filters);
     setPage(1);
   };
 
-  // Handle page change
+  // ------------------------------------------------------------
+  // Pagination
+  // ------------------------------------------------------------
+
   const handlePreviousPage = () => {
     if (page > 1) {
       setPage((p) => p - 1);
@@ -118,57 +180,181 @@ export default function Transactions() {
   };
 
   const handleNextPage = () => {
-    const lastPage = Math.ceil(total / pageSize);
     if (page < lastPage) {
       setPage((p) => p + 1);
     }
   };
 
-  // Fetch transactions when appliedFilters or page changes
-  useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+  // ------------------------------------------------------------
+  // Copy transaction ID
+  // ------------------------------------------------------------
 
-  // Handle transaction ID copy
-  const handleCopyTxId = (fullTxId) => {
-    navigator.clipboard.writeText(fullTxId).then(() => {
-      ToastProvider.toast.success('Transaction ID copied');
-    });
+  const handleCopyTxId = async (fullTxId) => {
+    try {
+      await navigator.clipboard.writeText(fullTxId);
+
+      addToast({
+        type: 'success',
+        message: 'Transaction ID copied',
+      });
+    } catch (err) {
+      console.error('Failed to copy transaction ID:', err);
+
+      addToast({
+        type: 'error',
+        message: 'Failed to copy Transaction ID',
+      });
+    }
   };
 
-  // Handle row click to open detail slide-over
+  // ------------------------------------------------------------
+  // Open transaction detail
+  // ------------------------------------------------------------
+
   const handleRowClick = (transactionId) => {
     setDetailOpen(true);
-    setDetailLoading(true);
-    setDetailError(null);
-    setSelectedTransaction(null);
     fetchTransactionDetail(transactionId);
   };
 
-  // Close detail slide-over
+  // ------------------------------------------------------------
+  // Close transaction detail
+  // ------------------------------------------------------------
+
   const closeDetail = () => {
     setDetailOpen(false);
     setSelectedTransaction(null);
     setDetailError(null);
+
+    setDisputeModalOpen(false);
+    setDisputeReason('');
+    setDisputeDescription('');
+    setDisputeSubmitting(false);
+    setDisputeSubmitted(false);
   };
 
-  // Calculate last page
-  const lastPage = Math.ceil(total / pageSize);
+  // ------------------------------------------------------------
+  // Open dispute modal
+  // ------------------------------------------------------------
+
+  const openDisputeModal = () => {
+    setDisputeModalOpen(true);
+    setDisputeReason('');
+    setDisputeDescription('');
+    setDisputeSubmitting(false);
+  };
+
+  // ------------------------------------------------------------
+  // Close dispute modal
+  // ------------------------------------------------------------
+
+  const closeDisputeModal = () => {
+    if (disputeSubmitting) {
+      return;
+    }
+
+    setDisputeModalOpen(false);
+  };
+
+  // ------------------------------------------------------------
+  // Raise dispute
+  //
+  // IMPORTANT:
+  // Named handleRaiseDispute to avoid conflicting with the
+  // imported raiseDispute API function.
+  // ------------------------------------------------------------
+
+  const handleRaiseDispute = async () => {
+    if (!disputeReason || !disputeDescription.trim()) {
+      addToast({
+        type: 'error',
+        message: 'Reason and description are required.',
+      });
+      return;
+    }
+
+    if (!selectedTransaction) {
+      addToast({
+        type: 'error',
+        message: 'No transaction selected.',
+      });
+      return;
+    }
+
+    if (selectedTransaction.status !== 'SUCCESS') {
+      addToast({
+        type: 'error',
+        message: 'Only successful transactions can be disputed.',
+      });
+      return;
+    }
+
+    setDisputeSubmitting(true);
+
+    try {
+      await raiseDispute(
+        selectedTransaction.transaction_id,
+        disputeReason,
+        disputeDescription.trim()
+      );
+
+      setDisputeSubmitted(true);
+      setDisputeModalOpen(false);
+
+      addToast({
+        type: 'success',
+        message: 'Dispute raised successfully.',
+      });
+    } catch (err) {
+      console.error('Failed to raise dispute:', err);
+
+      const message =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        'Failed to raise dispute.';
+
+      addToast({
+        type: 'error',
+        message,
+      });
+    } finally {
+      setDisputeSubmitting(false);
+    }
+  };
+
+  // ------------------------------------------------------------
+  // Render
+  // ------------------------------------------------------------
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-4">Transactions</h1>
+      <h1 className="text-2xl font-semibold mb-4">
+        Transactions
+      </h1>
 
+      {/* ------------------------------------------------------ */}
       {/* Filter Bar */}
+      {/* ------------------------------------------------------ */}
+
       <div className="flex flex-wrap gap-4 mb-4 items-end">
+
+        {/* Status */}
         <div>
-          <label htmlFor="status" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="status"
+            className="block text-sm font-medium text-gray-700"
+          >
             Status
           </label>
+
           <select
             id="status"
             value={filters.status}
-            onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+            onChange={(e) =>
+              setFilters((f) => ({
+                ...f,
+                status: e.target.value,
+              }))
+            }
             className="mt-1 block w-40 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
           >
             {STATUS_OPTIONS.map((opt) => (
@@ -177,16 +363,26 @@ export default function Transactions() {
               </option>
             ))}
           </select>
-      </div>
+        </div>
 
+        {/* Payment Method */}
         <div>
-          <label htmlFor="paymentMethod" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="paymentMethod"
+            className="block text-sm font-medium text-gray-700"
+          >
             Payment Method
           </label>
+
           <select
             id="paymentMethod"
             value={filters.payment_method}
-            onChange={(e) => setFilters((f) => ({ ...f, payment_method: e.target.value }))}
+            onChange={(e) =>
+              setFilters((f) => ({
+                ...f,
+                payment_method: e.target.value,
+              }))
+            }
             className="mt-1 block w-40 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
           >
             {PAYMENT_METHOD_OPTIONS.map((opt) => (
@@ -197,36 +393,58 @@ export default function Transactions() {
           </select>
         </div>
 
+        {/* Start Date */}
         <div>
-          <label htmlFor="startDate" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="startDate"
+            className="block text-sm font-medium text-gray-700"
+          >
             Start Date
           </label>
+
           <input
             type="date"
             id="startDate"
             value={filters.start_date}
-            onChange={(e) => setFilters((f) => ({ ...f, start_date: e.target.value }))}
+            onChange={(e) =>
+              setFilters((f) => ({
+                ...f,
+                start_date: e.target.value,
+              }))
+            }
             className="mt-1 block w-40 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
             max={filters.end_date || undefined}
           />
         </div>
 
+        {/* End Date */}
         <div>
-          <label htmlFor="endDate" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="endDate"
+            className="block text-sm font-medium text-gray-700"
+          >
             End Date
           </label>
+
           <input
             type="date"
             id="endDate"
             value={filters.end_date}
-            onChange={(e) => setFilters((f) => ({ ...f, end_date: e.target.value }))}
+            onChange={(e) =>
+              setFilters((f) => ({
+                ...f,
+                end_date: e.target.value,
+              }))
+            }
             className="mt-1 block w-40 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
             min={filters.start_date || undefined}
           />
         </div>
 
+        {/* Apply */}
         <div>
           <button
+            type="button"
             onClick={handleApplyFilters}
             className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
@@ -235,96 +453,138 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* Error message */}
+      {/* ------------------------------------------------------ */}
+      {/* Error */}
+      {/* ------------------------------------------------------ */}
+
       {error && (
-        <div className="mb-4 text-red-600 font-medium" role="alert">
+        <div
+          className="mb-4 text-red-600 font-medium"
+          role="alert"
+        >
           {error}
         </div>
       )}
 
+      {/* ------------------------------------------------------ */}
       {/* Transactions Table */}
+      {/* ------------------------------------------------------ */}
+
       <div className="overflow-x-auto border border-gray-200 rounded-md">
         <table className="min-w-full divide-y divide-gray-200">
+
           <thead className="bg-indigo-100 border-b-4 border-indigo-700 shadow-md">
             <tr>
               <th className="px-4 py-3 text-left text-sm font-extrabold text-indigo-900 uppercase tracking-wider">
                 TX ID
               </th>
+
               <th className="px-4 py-3 text-left text-sm font-extrabold text-indigo-900 uppercase tracking-wider">
                 Merchant
               </th>
+
               <th className="px-4 py-3 text-right text-sm font-extrabold text-indigo-900 uppercase tracking-wider">
                 Amount
               </th>
+
               <th className="px-4 py-3 text-left text-sm font-extrabold text-indigo-900 uppercase tracking-wider">
                 Method
               </th>
+
               <th className="px-4 py-3 text-left text-sm font-extrabold text-indigo-900 uppercase tracking-wider">
                 Status
               </th>
+
               <th className="px-4 py-3 text-center text-sm font-extrabold text-indigo-900 uppercase tracking-wider">
                 Risk Score
               </th>
+
               <th className="px-4 py-3 text-left text-sm font-extrabold text-indigo-900 uppercase tracking-wider">
                 IST Timestamp
               </th>
             </tr>
           </thead>
+
           <tbody className="bg-white divide-y divide-gray-200">
+
+            {/* Loading */}
             {loading ? (
-              // Loading skeleton rows
               Array.from({ length: pageSize }).map((_, idx) => (
                 <tr key={idx} className="animate-pulse">
+
                   <td className="px-4 py-2">
                     <div className="h-4 bg-gray-300 rounded w-20"></div>
                   </td>
+
                   <td className="px-4 py-2">
                     <div className="h-4 bg-gray-300 rounded w-24"></div>
                   </td>
+
                   <td className="px-4 py-2 text-right">
                     <div className="h-4 bg-gray-300 rounded w-16 mx-auto"></div>
                   </td>
+
                   <td className="px-4 py-2">
                     <div className="h-4 bg-gray-300 rounded w-16"></div>
                   </td>
+
                   <td className="px-4 py-2">
                     <div className="h-4 bg-gray-300 rounded w-20"></div>
                   </td>
+
                   <td className="px-4 py-2 text-center">
                     <div className="h-4 bg-gray-300 rounded w-12 mx-auto"></div>
                   </td>
+
                   <td className="px-4 py-2">
                     <div className="h-4 bg-gray-300 rounded w-32"></div>
                   </td>
+
                 </tr>
               ))
+
             ) : total === 0 ? (
+
               <tr>
-                <td colSpan="7" className="text-center py-8 text-gray-500">
+                <td
+                  colSpan="7"
+                  className="text-center py-8 text-gray-500"
+                >
                   <EmptyState message="No transactions found. Try adjusting your filters." />
                 </td>
               </tr>
+
             ) : (
+
               transactions.map((tx) => (
                 <tr
                   key={tx.transaction_id}
                   className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => handleRowClick(tx.transaction_id)}
+                  onClick={() =>
+                    handleRowClick(tx.transaction_id)
+                  }
                 >
+
+                  {/* TX ID */}
                   <td className="px-4 py-2 flex items-center space-x-2">
+
                     <span
                       className="text-indigo-600 underline cursor-pointer"
                       onClick={(e) => {
                         e.stopPropagation();
-                        // Open slide-over with details on clicking TX ID text
+
                         setDetailOpen(true);
-                        fetchTransactionDetail(tx.transaction_id);
+                        fetchTransactionDetail(
+                          tx.transaction_id
+                        );
                       }}
                       title="Click to view transaction details"
                     >
                       {shortenTxId(tx.transaction_id)}
                     </span>
+
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleCopyTxId(tx.transaction_id);
@@ -348,33 +608,60 @@ export default function Transactions() {
                         />
                       </svg>
                     </button>
+
                   </td>
-                  <td className="px-4 py-2">{tx.merchant_id}</td>
+
+                  {/* Merchant */}
+                  <td className="px-4 py-2">
+                    {tx.merchant_id}
+                  </td>
+
+                  {/* Amount */}
                   <td className="px-4 py-2 text-right font-mono">
                     {tx.currency === 'INR'
                       ? formatIndianCurrency(tx.amount)
-                      : `${tx.currency} ${tx.amount.toLocaleString()}`}
+                      : `${tx.currency} ${tx.amount?.toLocaleString?.() ?? tx.amount}`}
                   </td>
+
+                  {/* Method */}
                   <td className="px-4 py-2">
                     <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-gray-200 text-gray-800">
                       {tx.payment_method}
                     </span>
                   </td>
+
+                  {/* Status */}
                   <td className="px-4 py-2">
                     <StatusBadge status={tx.status} />
                   </td>
-                  <td className="px-4 py-2 text-center text-gray-500 font-mono">N/A</td>
-                  <td className="px-4 py-2">{formatDateTimeIST(tx.created_at)}</td>
+
+                  {/* Risk */}
+                  <td className="px-4 py-2 text-center text-gray-500 font-mono">
+                    N/A
+                  </td>
+
+                  {/* Timestamp */}
+                  <td className="px-4 py-2">
+                    {formatDateTimeIST(tx.created_at)}
+                  </td>
+
                 </tr>
               ))
+
             )}
+
           </tbody>
         </table>
       </div>
 
+      {/* ------------------------------------------------------ */}
       {/* Pagination */}
+      {/* ------------------------------------------------------ */}
+
       <div className="flex justify-between items-center mt-4">
+
         <button
+          type="button"
           onClick={handlePreviousPage}
           disabled={page === 1}
           className={`px-3 py-1 rounded border ${
@@ -385,104 +672,372 @@ export default function Transactions() {
         >
           Previous
         </button>
+
         <span className="text-sm text-gray-700">
-          Page {page} of {lastPage || 1}
+          Page {page} of {lastPage}
         </span>
+
         <button
+          type="button"
           onClick={handleNextPage}
-          disabled={page === lastPage || lastPage === 0}
+          disabled={page === lastPage}
           className={`px-3 py-1 rounded border ${
-            page === lastPage || lastPage === 0
+            page === lastPage
               ? 'border-gray-300 text-gray-400 cursor-not-allowed'
               : 'border-indigo-600 text-indigo-600 hover:bg-indigo-50'
           }`}
         >
           Next
         </button>
+
       </div>
 
-      {/* Slide-over detail panel */}
+      {/* ------------------------------------------------------ */}
+      {/* Transaction Detail Slide-over */}
+      {/* ------------------------------------------------------ */}
+
       {detailOpen && (
-        <Modal isOpen={detailOpen} onClose={closeDetail} slideOver>
+        <Modal
+          isOpen={detailOpen}
+          onClose={closeDetail}
+          slideOver
+        >
           <div className="p-6 w-96 max-w-full h-full overflow-y-auto bg-white">
+
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">TRANSACTION DETAILS</h2>
+
+              <h2 className="text-lg font-semibold">
+                TRANSACTION DETAILS
+              </h2>
+
               <button
+                type="button"
                 onClick={closeDetail}
                 aria-label="Close"
                 className="text-gray-500 hover:text-gray-700"
               >
                 &times;
               </button>
+
             </div>
 
+            {/* Detail loading */}
             {detailLoading ? (
+
               <LoadingSpinner />
+
             ) : detailError ? (
-              <div className="text-red-600 font-medium">{detailError}</div>
+
+              <div className="text-red-600 font-medium">
+                {detailError}
+              </div>
+
             ) : selectedTransaction ? (
+
               <div className="space-y-4 text-sm text-gray-700">
+
+                {/* Transaction ID */}
                 <div>
-                  <div className="font-semibold">Transaction ID</div>
-                  <div className="font-mono break-all">{selectedTransaction.transaction_id || 'N/A'}</div>
+                  <div className="font-semibold">
+                    Transaction ID
+                  </div>
+
+                  <div className="font-mono break-all">
+                    {selectedTransaction.transaction_id || 'N/A'}
+                  </div>
                 </div>
+
+                {/* Merchant */}
                 <div>
-                  <div className="font-semibold">Merchant</div>
-                  <div>{selectedTransaction.merchant_id || 'N/A'}</div>
+                  <div className="font-semibold">
+                    Merchant
+                  </div>
+
+                  <div>
+                    {selectedTransaction.merchant_id || 'N/A'}
+                  </div>
                 </div>
+
+                {/* Amount */}
                 <div>
-                  <div className="font-semibold">Amount</div>
+                  <div className="font-semibold">
+                    Amount
+                  </div>
+
                   <div>
                     {selectedTransaction.currency === 'INR'
-                      ? formatIndianCurrency(selectedTransaction.amount)
+                      ? formatIndianCurrency(
+                          selectedTransaction.amount
+                        )
                       : selectedTransaction.currency
-                      ? `${selectedTransaction.currency} ${selectedTransaction.amount.toLocaleString()}`
+                      ? `${selectedTransaction.currency} ${
+                          selectedTransaction.amount?.toLocaleString?.() ??
+                          selectedTransaction.amount
+                        }`
                       : 'N/A'}
                   </div>
                 </div>
+
+                {/* Payment Method */}
                 <div>
-                  <div className="font-semibold">Payment Method</div>
-                  <div>{selectedTransaction.payment_method || 'N/A'}</div>
-                </div>
-                <div>
-                  <div className="font-semibold">Status</div>
-                  <StatusBadge status={selectedTransaction.status || 'N/A'} />
-                </div>
-                <div>
-                  <div className="font-semibold">Gateway</div>
-                  <div>{selectedTransaction.gateway_used || 'N/A'}</div>
-                </div>
-                <div>
-                  <div className="font-semibold">Razorpay Order ID</div>
-                  <div>{selectedTransaction.razorpay_order_id || 'N/A'}</div>
-                </div>
-                <div>
-                  <div className="font-semibold">Razorpay Payment ID</div>
-                  <div>{selectedTransaction.razorpay_payment_id || 'N/A'}</div>
-                </div>
-                <div>
-                  <div className="font-semibold">Created</div>
-                  <div>{selectedTransaction.created_at ? formatDateTimeIST(selectedTransaction.created_at) + ' IST' : 'N/A'}</div>
+                  <div className="font-semibold">
+                    Payment Method
+                  </div>
+
+                  <div>
+                    {selectedTransaction.payment_method || 'N/A'}
+                  </div>
                 </div>
 
-                {/* Risk & Fraud section */}
+                {/* Status */}
+                <div>
+                  <div className="font-semibold">
+                    Status
+                  </div>
+
+                  <StatusBadge
+                    status={
+                      selectedTransaction.status || 'N/A'
+                    }
+                  />
+                </div>
+
+                {/* Gateway */}
+                <div>
+                  <div className="font-semibold">
+                    Gateway
+                  </div>
+
+                  <div>
+                    {selectedTransaction.gateway_used || 'N/A'}
+                  </div>
+                </div>
+
+                {/* Razorpay Order ID */}
+                <div>
+                  <div className="font-semibold">
+                    Razorpay Order ID
+                  </div>
+
+                  <div className="font-mono break-all">
+                    {selectedTransaction.razorpay_order_id ||
+                      'N/A'}
+                  </div>
+                </div>
+
+                {/* Razorpay Payment ID */}
+                <div>
+                  <div className="font-semibold">
+                    Razorpay Payment ID
+                  </div>
+
+                  <div className="font-mono break-all">
+                    {selectedTransaction.razorpay_payment_id ||
+                      'N/A'}
+                  </div>
+                </div>
+
+                {/* Created */}
+                <div>
+                  <div className="font-semibold">
+                    Created
+                  </div>
+
+                  <div>
+                    {selectedTransaction.created_at
+                      ? `${formatDateTimeIST(
+                          selectedTransaction.created_at
+                        )} IST`
+                      : 'N/A'}
+                  </div>
+                </div>
+
+                {/* ------------------------------------------------ */}
+                {/* Risk & Fraud */}
+                {/* ------------------------------------------------ */}
+
                 <div className="mt-6 border-t pt-4 text-gray-500 text-xs">
-                  <div className="font-semibold mb-2">Risk & Fraud</div>
+
+                  <div className="font-semibold mb-2">
+                    Risk & Fraud
+                  </div>
+
                   <div>
                     <strong>Risk Score:</strong> Not available
                   </div>
+
                   <div>
                     <strong>Triggered Rules:</strong> Not available
                   </div>
+
                   <div>
                     <strong>Timeline:</strong> Not available
                   </div>
+
                 </div>
+
+                {/* ------------------------------------------------ */}
+                {/* Raise Dispute */}
+                {/* ------------------------------------------------ */}
+
+                {selectedTransaction.status === 'SUCCESS' &&
+                  !disputeSubmitted && (
+                    <button
+                      type="button"
+                      onClick={openDisputeModal}
+                      className="btn btn-warning w-full mt-4"
+                    >
+                      Raise Dispute
+                    </button>
+                  )}
+
+                {/* Dispute submitted */}
+                {disputeSubmitted && (
+                  <button
+                    type="button"
+                    disabled
+                    className="btn btn-success w-full mt-4 cursor-not-allowed"
+                  >
+                    Dispute Raised
+                  </button>
+                )}
+
               </div>
+
             ) : null}
+
+            {/* -------------------------------------------------- */}
+            {/* Raise Dispute Modal */}
+            {/* -------------------------------------------------- */}
+
+            {disputeModalOpen && (
+              <Modal
+                isOpen={disputeModalOpen}
+                onClose={closeDisputeModal}
+              >
+                <div className="p-6">
+
+                  <h3 className="text-lg font-semibold mb-4">
+                    Raise Dispute
+                  </h3>
+
+                  {/* Reason */}
+                  <label
+                    className="block mb-2 font-medium"
+                    htmlFor="disputeReason"
+                  >
+                    Reason
+                  </label>
+
+                  <select
+                    id="disputeReason"
+                    value={disputeReason}
+                    onChange={(e) =>
+                      setDisputeReason(e.target.value)
+                    }
+                    className="w-full border border-gray-300 rounded px-3 py-2 mb-4"
+                    required
+                    disabled={disputeSubmitting}
+                  >
+                    <option value="">
+                      Select reason
+                    </option>
+
+                    <option value="FRAUD">
+                      FRAUD
+                    </option>
+
+                    <option value="DUPLICATE">
+                      DUPLICATE
+                    </option>
+
+                    <option value="NOT_RECEIVED">
+                      NOT_RECEIVED
+                    </option>
+
+                    <option value="WRONG_AMOUNT">
+                      WRONG_AMOUNT
+                    </option>
+                  </select>
+
+                  {/* Description */}
+                  <label
+                    className="block mb-2 font-medium"
+                    htmlFor="disputeDescription"
+                  >
+                    Description
+                  </label>
+
+                  <textarea
+                    id="disputeDescription"
+                    value={disputeDescription}
+                    onChange={(e) =>
+                      setDisputeDescription(e.target.value)
+                    }
+                    className="w-full border border-gray-300 rounded px-3 py-2 mb-4"
+                    rows={4}
+                    required
+                    disabled={disputeSubmitting}
+                    placeholder="Describe the reason for this dispute..."
+                  />
+
+                  {/* Buttons */}
+                  <div className="flex justify-end gap-2">
+
+                    <button
+                      type="button"
+                      onClick={closeDisputeModal}
+                      disabled={disputeSubmitting}
+                      className="btn btn-secondary"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleRaiseDispute}
+                      className="btn btn-primary"
+                      disabled={
+                        disputeSubmitting ||
+                        !disputeReason ||
+                        !disputeDescription.trim()
+                      }
+                    >
+                      {disputeSubmitting
+                        ? 'Raising...'
+                        : 'Raise Dispute'}
+                    </button>
+
+                  </div>
+
+                </div>
+              </Modal>
+            )}
+
           </div>
         </Modal>
       )}
+
     </div>
+  );
+}
+
+/*
+ * Outer wrapper.
+ *
+ * This is the important fix:
+ *
+ * Transactions
+ *   └── ToastProvider
+ *         └── TransactionsContent
+ *               └── useToast()
+ *
+ * Therefore useToast() is now inside ToastProvider.
+ */
+export default function Transactions() {
+  return (
+    <ToastProvider>
+      <TransactionsContent />
+    </ToastProvider>
   );
 }
