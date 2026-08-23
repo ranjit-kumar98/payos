@@ -122,16 +122,6 @@ export function createPaymentOrder(amount, currency, paymentMethod) {
 
 // Disputes API functions
 
-export function raiseDispute(transactionId, reason, description) {
-  return apiClient
-    .post('/disputes', {
-      transaction_id: transactionId,
-      reason,
-      description,
-    })
-    .then((res) => res.data);
-}
-
 export function getDisputes(params) {
   return apiClient.get('/disputes', { params });
 }
@@ -153,6 +143,14 @@ export function resolveDispute(disputeId, resolutionNotes) {
 export function rejectDispute(disputeId, resolutionNotes) {
   return apiClient.post(`/disputes/${disputeId}/reject`, null, {
     params: { resolution_notes: resolutionNotes },
+  });
+}
+
+export function raiseDispute(transactionId, reason, description) {
+  return apiClient.post('/disputes', {
+    transaction_id: transactionId,
+    reason,
+    description,
   });
 }
 

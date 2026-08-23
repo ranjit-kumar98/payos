@@ -3,7 +3,7 @@ import { routePayment, createPaymentOrder } from '../api/client';
 import { ToastProvider, useToast } from '../components/ToastProvider';
 
 const PRODUCT_NAME = 'PayOS Pro';
-const PRODUCT_AMOUNT = 4999;
+const PRODUCT_AMOUNT = 4999; // Remove this line or comment it out as amount will be state-driven
 const PRODUCT_CURRENCY = 'INR';
 
 const STEP = {
@@ -30,6 +30,9 @@ function CheckoutDemoContent() {
   const [paymentResult, setPaymentResult] = useState(null);
 
   const [paymentError, setPaymentError] = useState(null);
+
+  // Add state for amount with default 4999
+  const [amount, setAmount] = useState(4999);
 
   // ------------------------------------------------------------
   // Helpers
@@ -102,8 +105,16 @@ function CheckoutDemoContent() {
     setPaymentResult(null);
 
     try {
+      if (!amount || amount <= 0) {
+        addToast({
+          type: 'error',
+          message: 'Please enter a valid positive amount.',
+        });
+        setPaymentLoading(false);
+        return;
+      }
       const data = await routePayment(
-        PRODUCT_AMOUNT,
+        amount,
         PRODUCT_CURRENCY,
         'CARD'
       );
@@ -164,8 +175,16 @@ function CheckoutDemoContent() {
       await loadRazorpayScript();
 
       // Create PayOS/Razorpay order through backend
+      if (!amount || amount <= 0) {
+        addToast({
+          type: 'error',
+          message: 'Please enter a valid positive amount.',
+        });
+        setPaymentLoading(false);
+        return;
+      }
       const orderData = await createPaymentOrder(
-        PRODUCT_AMOUNT,
+        amount,
         PRODUCT_CURRENCY,
         'CARD'
       );
@@ -181,7 +200,7 @@ function CheckoutDemoContent() {
 
         order_id: orderData.order_id,
 
-        amount: PRODUCT_AMOUNT * 100,
+        amount: amount * 100,
 
         currency: PRODUCT_CURRENCY,
 
@@ -416,7 +435,25 @@ function CheckoutDemoContent() {
                   </div>
 
                   <div className="mt-2 text-4xl font-bold text-gray-900">
-                    {formatCurrency(PRODUCT_AMOUNT)}
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={amount}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setAmount('');
+                        } else {
+                          const num = Number(val);
+                          if (num > 0) {
+                            setAmount(num);
+                          }
+                        }
+                      }}
+                      className="w-full bg-gray-50 border border-gray-300 rounded-md px-3 py-2 text-4xl font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      aria-label="Checkout amount"
+                    />
                   </div>
 
                   <div className="mt-1 text-sm text-gray-500">

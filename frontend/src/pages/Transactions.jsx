@@ -80,6 +80,9 @@ function TransactionsContent() {
   const [detailError, setDetailError] = useState(null);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
 
+  // Transaction ID search
+  const [transactionIdSearch, setTransactionIdSearch] = useState('');
+
   // Dispute modal
   const [disputeModalOpen, setDisputeModalOpen] = useState(false);
   const [disputeReason, setDisputeReason] = useState('');
@@ -125,6 +128,58 @@ function TransactionsContent() {
       setLoading(false);
     }
   }, [appliedFilters, page]);
+
+  // ------------------------------------------------------------
+  // Search transaction by ID
+  // ------------------------------------------------------------
+
+  const handleTransactionIdSearch = async () => {
+    const transactionId = transactionIdSearch.trim();
+
+    if (!transactionId) {
+      addToast({
+        type: 'error',
+        message: 'Please enter a Transaction ID.',
+      });
+      return;
+    }
+
+    setDetailOpen(true);
+    setDetailLoading(true);
+    setDetailError(null);
+    setSelectedTransaction(null);
+
+    try {
+      const data = await getTransaction(transactionId);
+
+      setSelectedTransaction(data);
+
+      // Reset dispute state for the newly opened transaction.
+      setDisputeSubmitted(false);
+      setDisputeModalOpen(false);
+      setDisputeReason('');
+      setDisputeDescription('');
+    } catch (err) {
+      console.error('Failed to find transaction:', err);
+
+      setDetailOpen(false);
+      setDetailError(null);
+
+      addToast({
+        type: 'error',
+        message: 'Transaction not found. Please check the Transaction ID.',
+      });
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleTransactionIdSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleTransactionIdSearch();
+    }
+  };
 
   // ------------------------------------------------------------
   // Fetch transaction detail
@@ -446,9 +501,38 @@ function TransactionsContent() {
           <button
             type="button"
             onClick={handleApplyFilters}
-            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="inline-block px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
           >
             Apply
+          </button>
+        </div>
+
+        {/* Transaction ID Search */}
+        <div className="flex items-end gap-2">
+          <div>
+            <label
+              htmlFor="transactionIdSearch"
+              className="block text-sm font-medium text-gray-700"
+            >
+              Transaction ID
+            </label>
+            <input
+              id="transactionIdSearch"
+              type="text"
+              value={transactionIdSearch}
+              onChange={(e) => setTransactionIdSearch(e.target.value)}
+              onKeyDown={handleTransactionIdSearchKeyDown}
+              placeholder="Enter Transaction ID"
+              className="mt-1 block w-64 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleTransactionIdSearch}
+            className="inline-block px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+          >
+            Search
           </button>
         </div>
       </div>
@@ -885,7 +969,7 @@ function TransactionsContent() {
                     <button
                       type="button"
                       onClick={openDisputeModal}
-                      className="btn btn-warning w-full mt-4"
+                      className="w-full mt-4 rounded-md bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1 disabled:opacity-50"
                     >
                       Raise Dispute
                     </button>
@@ -988,7 +1072,7 @@ function TransactionsContent() {
                       type="button"
                       onClick={closeDisputeModal}
                       disabled={disputeSubmitting}
-                      className="btn btn-secondary"
+                      className="inline-block px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-200 rounded hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1"
                     >
                       Cancel
                     </button>
@@ -996,7 +1080,7 @@ function TransactionsContent() {
                     <button
                       type="button"
                       onClick={handleRaiseDispute}
-                      className="btn btn-primary"
+                      className="inline-block px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
                       disabled={
                         disputeSubmitting ||
                         !disputeReason ||

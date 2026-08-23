@@ -20,6 +20,13 @@ const DISPUTE_STATUSES = [
   'REJECTED',
 ];
 
+const DISPUTE_REASONS = [
+  'FRAUD',
+  'DUPLICATE',
+  'NOT_RECEIVED',
+  'WRONG_AMOUNT',
+];
+
 const STATUS_LABELS = {
   RAISED: 'Raised',
   UNDER_REVIEW: 'Under Review',
@@ -651,6 +658,15 @@ function DisputesContent() {
   const [filterStatus, setFilterStatus] =
     useState('ALL');
 
+  const [filterReason, setFilterReason] =
+    useState('ALL');
+
+  const [transactionIdInput, setTransactionIdInput] =
+    useState('');
+
+  const [transactionIdSearch, setTransactionIdSearch] =
+    useState('');
+
   /*
    * Load the complete dispute list.
    *
@@ -692,18 +708,44 @@ function DisputesContent() {
   }, [loadDisputes]);
 
   /*
-   * Filter only affects the visible Kanban cards.
+   * Status, reason, and transaction ID filters affect
+   * only the visible Kanban cards.
+   *
+   * Reason and transaction ID filtering are intentionally
+   * performed on the already-loaded dispute data because
+   * the backend does not expose a reason filter.
    */
   const visibleDisputes = useMemo(() => {
-    if (filterStatus === 'ALL') {
-      return allDisputes;
-    }
+    const normalizedTransactionId =
+      transactionIdSearch.trim().toLowerCase();
 
-    return allDisputes.filter(
-      (dispute) =>
-        dispute.status === filterStatus
-    );
-  }, [allDisputes, filterStatus]);
+    return allDisputes.filter((dispute) => {
+      const matchesStatus =
+        filterStatus === 'ALL' ||
+        dispute.status === filterStatus;
+
+      const matchesReason =
+        filterReason === 'ALL' ||
+        dispute.reason === filterReason;
+
+      const matchesTransactionId =
+        !normalizedTransactionId ||
+        String(dispute.transaction_id || '')
+          .toLowerCase()
+          .includes(normalizedTransactionId);
+
+      return (
+        matchesStatus &&
+        matchesReason &&
+        matchesTransactionId
+      );
+    });
+  }, [
+    allDisputes,
+    filterStatus,
+    filterReason,
+    transactionIdSearch,
+  ]);
 
   /*
    * Kanban columns.
@@ -773,6 +815,24 @@ function DisputesContent() {
         dispute.is_sla_breached === true
     ).length;
   }, [allDisputes]);
+
+  const handleTransactionIdSearch = () => {
+    setTransactionIdSearch(
+      transactionIdInput.trim()
+    );
+  };
+
+  const handleTransactionIdSearchKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleTransactionIdSearch();
+    }
+  };
+
+  const handleClearTransactionIdSearch = () => {
+    setTransactionIdInput('');
+    setTransactionIdSearch('');
+  };
 
   const handleOpenDispute = (dispute) => {
     setSelectedDispute(dispute);
@@ -983,9 +1043,9 @@ function DisputesContent() {
           />
         </div>
 
-        {/* Filter / Refresh */}
+        {/* Filters / Search / Refresh */}
         <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-end gap-3">
             <div>
               <label
                 htmlFor="dispute-status-filter"
@@ -1002,7 +1062,7 @@ function DisputesContent() {
                     event.target.value
                   )
                 }
-                className="mt-1 w-full sm:w-52 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                className="mt-1 w-full lg:w-52 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
               >
                 <option value="ALL">
                   All Statuses
@@ -1021,11 +1081,91 @@ function DisputesContent() {
               </select>
             </div>
 
+            <div>
+              <label
+                htmlFor="dispute-reason-filter"
+                className="block text-sm font-medium text-gray-700"
+              >
+                Reason
+              </label>
+
+              <select
+                id="dispute-reason-filter"
+                value={filterReason}
+                onChange={(event) =>
+                  setFilterReason(
+                    event.target.value
+                  )
+                }
+                className="mt-1 w-full lg:w-52 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              >
+                <option value="ALL">
+                  All Reasons
+                </option>
+
+                {DISPUTE_REASONS.map(
+                  (reason) => (
+                    <option
+                      key={reason}
+                      value={reason}
+                    >
+                      {formatReason(reason)}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+            <div className="flex-1 min-w-0 lg:max-w-xl">
+              <label
+                htmlFor="dispute-transaction-id-search"
+                className="block text-sm font-medium text-gray-700"
+              >
+                Transaction ID
+              </label>
+
+              <div className="mt-1 flex gap-2">
+                <input
+                  id="dispute-transaction-id-search"
+                  type="text"
+                  value={transactionIdInput}
+                  onChange={(event) =>
+                    setTransactionIdInput(
+                      event.target.value
+                    )
+                  }
+                  onKeyDown={
+                    handleTransactionIdSearchKeyDown
+                  }
+                  placeholder="Enter Transaction ID"
+                  className="min-w-0 flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                />
+
+                <button
+                  type="button"
+                  onClick={handleTransactionIdSearch}
+                  className="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+                >
+                  Search
+                </button>
+
+                {transactionIdSearch && (
+                  <button
+                    type="button"
+                    onClick={handleClearTransactionIdSearch}
+                    className="px-3 py-2 rounded-md border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
             <button
               type="button"
               onClick={loadDisputes}
               disabled={loading}
-              className="sm:ml-auto self-end px-4 py-2 rounded-md border border-indigo-600 text-indigo-600 text-sm font-medium hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="lg:ml-auto self-end px-4 py-2 rounded-md border border-indigo-600 text-indigo-600 text-sm font-medium hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading
                 ? 'Refreshing...'
