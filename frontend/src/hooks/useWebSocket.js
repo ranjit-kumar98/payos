@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-const WS_URL = 'ws://localhost:3001/ws';
+const WS_URL = 'ws://localhost/ws';
 
 export function useWebSocket({
   onPaymentSuccess,

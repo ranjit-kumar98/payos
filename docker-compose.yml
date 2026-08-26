@@ -1,283 +1,321 @@
 # Docker Compose file for PayOS fintech project
-# This setup uses modern Docker Compose syntax without deprecated version field
-# All services run inside Docker with a shared network 'payos-network'
-# Includes PostgreSQL, Redis, Kafka (KRaft mode), Kafka UI, Redis Commander,
-# FastAPI backend, Celery worker, Node.js notification service, React frontend, and Nginx reverse proxy
+#
+# All services run inside Docker with a shared network 'payos-network'.
+# Nginx is the single externally exposed entry point on port 80.
+#
+# Browser-facing routes:
+#   /        -> React frontend
+#   /api/    -> FastAPI backend
+#   /ws      -> Node.js WebSocket notification service
+#
+# Internal services such as PostgreSQL, Redis, Kafka, Celery,
+# Kafka UI, Redis Commander and Flower are not exposed directly
+# to the host.
 
 services:
+
+  # ─── Service 1: PostgreSQL ─────────────────────────────────────────────
+
   postgres:
     image: postgres:15
     container_name: payos_postgres
     restart: unless-stopped
+
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: payos123
       POSTGRES_DB: payos
-    ports:
-      - "5432:5432"
+
+    # No host port.
+    # Other Docker services access PostgreSQL using:
+    # postgres:5432
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
     networks:
       - payos-network
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+
+  # ─── Service 2: Redis ──────────────────────────────────────────────────
+
   redis:
     image: redis:7
     container_name: payos_redis
     restart: unless-stopped
-    command: ["redis-server", "--requirepass", "payos_redis_pass"]
-    ports:
-      - "6379:6379"
+
+    command:
+      - redis-server
+      - --requirepass
+      - payos_redis_pass
+
+    # No host port.
+    # Other Docker services access Redis using:
+    # redis:6379
+
     volumes:
       - redis_data:/data
+
     networks:
       - payos-network
+
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "payos_redis_pass", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ─── Service 3: Zookeeper ────────────────────────────────────────────
+
+  # ─── Service 3: Zookeeper ──────────────────────────────────────────────
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: payos-zookeeper
     hostname: zookeeper
-    ports:
-      - "2181:2181"
+
+    # No host port.
+    # Kafka accesses Zookeeper internally using:
+    # zookeeper:2181
+
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
       ZOOKEEPER_INIT_LIMIT: 10
       ZOOKEEPER_SYNC_LIMIT: 5
       ZOOKEEPER_MAX_CLIENT_CNXNS: 60
+
     healthcheck:
-      # FIX: cp-zookeeper image ships zkServer.sh — nc is NOT available
-      test: ["CMD", "bash", "-c", "echo 'ruok' | timeout 2 bash -c 'cat > /dev/tcp/localhost/2181' && echo OK"]
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "echo 'ruok' | timeout 2 bash -c 'cat > /dev/tcp/localhost/2181' && echo OK"
+        ]
       interval: 15s
       timeout: 10s
       retries: 10
       start_period: 30s
+
     networks:
       - payos-network
+
     restart: unless-stopped
 
-  # ─── Service 4: Kafka ────────────────────────────────────────────────
+
+  # ─── Service 4: Kafka ──────────────────────────────────────────────────
+
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: payos-kafka
     hostname: kafka
-    ports:
-      - "9092:9092"
-      - "29092:29092"    # internal listener (other containers use this)
+
+    # IMPORTANT:
+    # No host ports are exposed.
+    #
+    # Docker services use:
+    # kafka:29092
+    #
+    # The internal listener remains available inside the Docker network.
+
     depends_on:
       zookeeper:
         condition: service_healthy
+
     environment:
       KAFKA_BROKER_ID: 1
+
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS: 60000
 
-      # FIX: Two listeners — one for Docker-internal, one for host access
+      # Internal Docker listener + optional host listener.
+      # The host listener is retained for Kafka's existing configuration,
+      # but it is NOT published to the host because there is no ports block.
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
 
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
       KAFKA_LOG_RETENTION_HOURS: 168
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
+
       KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      test:
+        [
+          "CMD",
+          "kafka-broker-api-versions",
+          "--bootstrap-server",
+          "localhost:9092"
+        ]
       interval: 20s
       timeout: 15s
       retries: 15
-      start_period: 60s       # Kafka needs time to register with ZK on Windows
+      start_period: 60s
+
     networks:
       - payos-network
+
     restart: unless-stopped
 
-  # ─── Kafka topic initialiser (runs once, then exits) ─────────────────
+
+  # ─── Kafka topic initializer ───────────────────────────────────────────
+
   kafka-init:
     image: confluentinc/cp-kafka:7.4.0
     container_name: payos-kafka-init
+
     depends_on:
       kafka:
         condition: service_healthy
+
     entrypoint: ["/bin/bash", "-c"]
+
     command: |
-      "
       echo 'Waiting for Kafka to be fully ready...'
       sleep 10
 
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.processed  --partitions 3 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.failed     --partitions 3 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic fraud.detected     --partitions 3 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic dispute.raised     --partitions 3 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic dispute.resolved   --partitions 3 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic dispute.rejected   --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.processed --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.failed --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic fraud.detected --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic dispute.raised --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic dispute.resolved --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic dispute.rejected --partitions 3 --replication-factor 1
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic notification.email --partitions 1 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic notification.sms   --partitions 1 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic notification.sms --partitions 1 --replication-factor 1
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.success --partitions 3 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic fraud.flagged      --partitions 3 --replication-factor 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic fraud.flagged --partitions 3 --replication-factor 1
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic dispute.sla_breached --partitions 3 --replication-factor 1
       kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic bnpl.loan_created --partitions 3 --replication-factor 1
 
       echo 'All topics created:'
       kafka-topics --bootstrap-server kafka:29092 --list
-      "
+
     networks:
       - payos-network
 
-  # ─── Service 5: Kafka UI ─────────────────────────────────────────────
+
+  # ─── Service 5: Kafka UI ───────────────────────────────────────────────
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: payos-kafka-ui
-    ports:
-      - "8080:8080"
+
+    # No host port.
+    # Kafka UI communicates with Kafka internally.
+
     depends_on:
       kafka:
-        condition: service_healthy    # FIX: was missing this condition
+        condition: service_healthy
+
     environment:
       KAFKA_CLUSTERS_0_NAME: payos-cluster
-      # FIX: use internal listener (kafka:29092), NOT localhost:9092
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
       DYNAMIC_CONFIG_ENABLED: "true"
       AUTH_TYPE: "disabled"
+
     networks:
       - payos-network
+
     restart: unless-stopped
 
-  # kafka:
-  #   image: apache/kafka:latest
-  #   container_name: payos_kafka
-  #   restart: unless-stopped
-  #   ports:
-  #     - "9092:9092"
-  #   environment:
-  #     KAFKA_BROKER_ID: 1
-  #     KAFKA_NODE_ID: 1
-  #     KAFKA_PROCESS_ROLES: broker,controller
-  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-  #     KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-  #     KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-  #     KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-  #     KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-  #     KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-  #     KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-  #     KAFKA_CLUSTER_ID: "V1Q2W3E4R5T6Y7U8I9O0P1A2S3D4F5G6" # Random UUID, replace if needed
-  #   volumes:
-  #     - kafka_data:/var/lib/kafka/data
-  #   networks:
-  #     - payos-network
-  #   # healthcheck:
-  #   #   test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
-  #   #   interval: 10s
-  #   #   timeout: 5s
-  #   #   retries: 5
-  #   command: >
-  #     sh -c "
-  #     # Wait for Kafka to be ready and create topics
-  #     kafka-topics --bootstrap-server localhost:9092 --create --topic payment.processed --if-not-exists &&
-  #     kafka-topics --bootstrap-server localhost:9092 --create --topic payment.failed --if-not-exists &&
-  #     kafka-topics --bootstrap-server localhost:9092 --create --topic fraud.detected --if-not-exists &&
-  #     kafka-topics --bootstrap-server localhost:9092 --create --topic dispute.raised --if-not-exists &&
-  #     kafka-topics --bootstrap-server localhost:9092 --create --topic notification.email --if-not-exists &&
-  #     kafka-topics --bootstrap-server localhost:9092 --create --topic notification.sms --if-not-exists &&
-  #     kafka-server-start /etc/kafka/server.properties
-  #     "
 
-  # kafka-ui:
-  #   image: provectuslabs/kafka-ui:latest
-  #   container_name: payos_kafka_ui
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8080:8080"
-  #   environment:
-  #     KAFKA_CLUSTERS_0_NAME: local
-  #     KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: host.docker.internal:9092
-  #   networks:
-  #     - payos-network
-  #   depends_on:
-  #     - kafka
-  #   # healthcheck:
-  #   #   test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-  #   #   interval: 10s
-  #   #   timeout: 5s
-  #   #   retries: 5
+  # ─── Redis Commander ───────────────────────────────────────────────────
 
   redis-commander:
     image: rediscommander/redis-commander:latest
     container_name: payos_redis_commander
     restart: unless-stopped
-    ports:
-      - "8081:8081"
+
+    # No host port.
+    # Redis Commander communicates with Redis internally.
+
     environment:
       REDIS_HOSTS: local:redis:6379:0:payos_redis_pass
+
     networks:
       - payos-network
+
     depends_on:
       - redis
-    # healthcheck:
-    #   test: ["CMD", "curl", "-f", "http://localhost:8081"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 5
+
+
+  # ─── FastAPI Backend ───────────────────────────────────────────────────
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+
     container_name: payos_backend
     restart: unless-stopped
+
     env_file:
       - .env
-    ports:
-      - "8000:8000"
+
+    # No host port.
+    #
+    # Nginx accesses the backend internally using:
+    # backend:8000
+
     networks:
       - payos-network
+
     depends_on:
       - postgres
       - redis
       - kafka
+
     volumes:
       - ./backend:/app
+
+
+  # ─── Celery Worker ─────────────────────────────────────────────────────
 
   celery_worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
+
     container_name: payos_celery_worker
     restart: unless-stopped
+
     command: celery -A app.celery_app worker --loglevel=info --concurrency=1
+
     networks:
       - payos-network
+
     depends_on:
       - backend
       - redis
       - kafka
+
     volumes:
       - ./backend:/app
-    # env_file:
-    #   - .env
-    
-    # environment:
-    #   SENDGRID_API_KEY: ${SENDGRID_API_KEY}
-    #   SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL}
+
     env_file:
-     - ./backend/.env.sendgrid
+      - ./backend/.env.sendgrid
+
+
+  # ─── Celery Beat ───────────────────────────────────────────────────────
 
   celery_beat:
     build:
@@ -285,7 +323,6 @@ services:
       dockerfile: Dockerfile
 
     container_name: payos_celery_beat
-
     restart: unless-stopped
 
     command: celery -A app.celery_app beat --loglevel=info
@@ -304,71 +341,111 @@ services:
       - redis
       - kafka
 
+
+  # ─── Flower ────────────────────────────────────────────────────────────
+
   flower:
     image: mher/flower:latest
     container_name: payos_flower
     restart: unless-stopped
-    ports:
-      - "5555:5555"
+
+    # No host port.
+    # Flower is internal only.
+
     environment:
       CELERY_BROKER_URL: redis://:payos_redis_pass@redis:6379/0
+
     networks:
       - payos-network
+
     depends_on:
       - redis
       - celery_worker
 
 
+  # ─── Node.js Notification / WebSocket Service ─────────────────────────
+
   notification_service:
     build:
       context: ./notification_service
       dockerfile: Dockerfile
+
     container_name: notification_service
     restart: unless-stopped
-    ports:
-      - "3001:3001"
+
+    # No host port.
+    #
+    # Nginx accesses WebSocket service internally using:
+    # notification_service:3001
+
     environment:
-      - KAFKA_BROKERS=kafka:29092
+      KAFKA_BROKERS: kafka:29092
+
     env_file:
       - ./notification_service/.env
+
     networks:
       - payos-network
+
     depends_on:
       - backend
 
+
+  # ─── React Frontend ────────────────────────────────────────────────────
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+
     container_name: payos_frontend
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+
+    # No host port.
+    #
+    # Nginx accesses frontend internally using:
+    # frontend:3000
+
     environment:
-      VITE_API_URL: http://localhost:8000
+      # Browser requests must go through Nginx.
+      VITE_API_URL: http://localhost
+
     networks:
       - payos-network
+
+
+  # ─── Nginx Reverse Proxy ──────────────────────────────────────────────
 
   nginx:
     image: nginx:stable-alpine
     container_name: payos_nginx
     restart: unless-stopped
+
+    # THE ONLY HOST PORT EXPOSED BY PAYOS
     ports:
       - "80:80"
+
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
     networks:
       - payos-network
+
     depends_on:
       - backend
       - notification_service
       - frontend
 
+
+# ─── Volumes ─────────────────────────────────────────────────────────────
+
 volumes:
   postgres_data:
   redis_data:
   kafka_data:
+
+
+# ─── Network ─────────────────────────────────────────────────────────────
 
 networks:
   payos-network:
